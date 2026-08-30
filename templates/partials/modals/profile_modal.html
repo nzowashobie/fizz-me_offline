@@ -1,0 +1,37 @@
+<div id="profile-modal-overlay" class="modal-overlay custom-modal-overlay" onclick="if(event.target===this){this.classList.remove('open');this.style.display='none';}">
+  <div class="modal-card" style="width:340px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <i class="fas fa-user-circle"></i>
+      <h3>My Profile</h3>
+      <button class="modal-close" onclick="document.getElementById('profile-modal-overlay').classList.remove('open');document.getElementById('profile-modal-overlay').style.display='none';">&times;</button>
+    </div>
+    <div class="modal-body" style="text-align:center;">
+      <div style="position:relative;width:100px;margin:0 auto 16px;">
+        <img src="{{ request.user.profile.profile_picture_url|default:'/static/images/default_profile_picture.webp' }}"
+             id="profile-modal-img"
+             style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--accent2);"
+             onerror="this.src='/static/images/default_profile_picture.webp'">
+        <button id="btn-change-pic" style="position:absolute;bottom:0;right:0;width:30px;height:30px;border-radius:50%;background:var(--accent2);border:none;color:#fff;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Change picture"><i class="fas fa-camera"></i></button>
+      </div>
+      <!-- Hidden file input -->
+      <input type="file" id="profile-pic-input" accept="image/*" style="display:none;">
+      <div id="pp-modal-username" style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px;">{{ request.user.username }}</div>
+      <div id="pp-modal-phone" style="font-size:13px;color:var(--sub);margin-bottom:18px;"><i class="fas fa-phone" style="color:var(--accent2);margin-right:6px;"></i>{{ request.user.phone_number }}</div>
+      <div class="modal-divider"></div>
+      <div class="modal-field" style="text-align:left;">
+        <label>Display Name</label>
+        <input type="text" id="pp-edit-username" placeholder="{{ request.user.username }}" value="{{ request.user.username }}">
+      </div>
+      <div class="modal-field" style="text-align:left;">
+        <label>Phone Number</label>
+        <input type="text" id="pp-edit-phone" placeholder="{{ request.user.phone_number }}" value="{{ request.user.phone_number }}" readonly style="color:var(--sub);cursor:not-allowed;">
+        <span class="modal-hint">Phone number cannot be changed after registration.</span>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="document.getElementById('profile-modal-overlay').classList.remove('open');document.getElementById('profile-modal-overlay').style.display='none';">Cancel</button>
+        <button class="modal-btn primary" id="pp-save-btn">Save Changes</button>
+      </div>
+      <div class="modal-status" id="pp-save-status"></div>
+    </div>
+  </div>
+</div>

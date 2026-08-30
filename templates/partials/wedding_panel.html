@@ -1,0 +1,186 @@
+<!-- ============================================================
+     wedding_panel.html — Wedding event creation / management panel
+     ============================================================ -->
+
+<style>
+  /* ── Wedding Event Panel ────────────────────────────────────────────── */
+  #wedding-panel-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:19000; }
+  #wedding-panel-overlay.open { display:block; }
+  #wedding-panel {
+    display:none; position:fixed; bottom:0; left:0; width:var(--sidebar-w);
+    max-height:92vh; background:#1a1f1f; border-top:2px solid #e91e63;
+    border-radius:16px 16px 0 0; z-index:19001; overflow-y:auto;
+    box-shadow:0 -4px 24px rgba(0,0,0,.7); animation:slideUp .25s ease-out;
+  }
+  #wedding-panel.open { display:block; }
+  .wp-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; border-bottom:1px solid var(--border); }
+  .wp-header h3 { font-size:15px; color:#f48fb1; }
+  #close-wedding-panel { background:none; border:none; color:var(--sub); font-size:22px; cursor:pointer; }
+  .wp-tabs { display:flex; border-bottom:1px solid var(--border); }
+  .wp-tab { flex:1; padding:10px; font-size:12px; font-weight:600; color:var(--sub); border:none; background:none; cursor:pointer; border-bottom:2px solid transparent; transition:all .15s; }
+  .wp-tab.active { color:#f48fb1; border-bottom-color:#e91e63; }
+  .wp-section { padding:16px 20px; }
+  .wp-field { margin-bottom:12px; }
+  .wp-field label { display:block; font-size:10px; color:#f48fb1; text-transform:uppercase; letter-spacing:.6px; font-weight:600; margin-bottom:4px; }
+  .wp-field input, .wp-field select, .wp-field textarea {
+    width:100%; background:var(--mid); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); padding:8px 12px; font-size:13px; outline:none;
+  }
+  .wp-field textarea { resize:none; height:60px; }
+  .wp-field input:focus, .wp-field select:focus { border-color:#e91e63; }
+  .wp-vis-chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .wp-vis-chip { padding:5px 12px; border-radius:16px; font-size:11px; font-weight:600; border:1.5px solid var(--border); background:none; color:var(--sub); cursor:pointer; transition:all .15s; }
+  .wp-vis-chip.active { border-color:#e91e63; background:rgba(233,30,99,.12); color:#f48fb1; }
+  .wp-submit-btn { width:100%; padding:12px; background:#e91e63; color:#fff; border:none; border-radius:25px; font-size:14px; font-weight:700; cursor:pointer; transition:background .15s; margin-top:4px; }
+  .wp-submit-btn:hover { background:#c2185b; }
+  .wp-submit-btn:disabled { background:#444; cursor:not-allowed; }
+  /* Invite card */
+  .wp-invite-card {
+    background:linear-gradient(135deg,#880e4f 0%,#c62828 50%,#4a148c 100%);
+    border-radius:14px; padding:22px; text-align:center; margin-bottom:14px; position:relative; overflow:hidden;
+    background-size:cover; background-position:center;
+  }
+  .wp-invite-card::before { content:'💍'; position:absolute; top:-10px; right:-10px; font-size:80px; opacity:.1; }
+  .wp-card-event-type { font-size:10px; color:rgba(255,255,255,.6); text-transform:uppercase; letter-spacing:2px; margin-bottom:6px; }
+  .wp-card-title { font-size:20px; font-weight:700; color:#fff; margin-bottom:4px; }
+  .wp-card-names { font-size:14px; color:rgba(255,255,255,.85); margin-bottom:10px; }
+  .wp-card-details { font-size:11px; color:rgba(255,255,255,.7); line-height:1.7; }
+  .wp-card-dress { display:inline-block; margin-top:8px; padding:4px 12px; border-radius:10px; background:rgba(255,255,255,.15); font-size:10px; color:#fff; }
+  .wp-invite-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .wp-invite-btn { flex:1; padding:10px; border:none; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; transition:all .15s; }
+  .wp-invite-btn.copy   { background:rgba(255,255,255,.1); color:var(--text); border:1px solid var(--border); }
+  .wp-invite-btn.copy:hover { background:rgba(255,255,255,.18); }
+  .wp-invite-btn.share  { background:#e91e63; color:#fff; }
+  .wp-invite-btn.share:hover { background:#c2185b; }
+  .wp-invite-btn.whatsapp { background:#25d366; color:#fff; }
+  /* Guest list */
+  .wp-guest-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
+  .wp-guest-avatar { width:34px; height:34px; border-radius:50%; object-fit:cover; flex-shrink:0; background:var(--mid); }
+  .wp-guest-info { flex:1; }
+  .wp-guest-name { font-size:13px; color:var(--text); }
+  .wp-rsvp-badge { font-size:10px; padding:2px 8px; border-radius:8px; font-weight:600; }
+  .rsvp-accepted { background:rgba(37,211,102,.15); color:#25d366; }
+  .rsvp-declined { background:rgba(241,92,109,.15); color:#f15c6d; }
+  .rsvp-maybe    { background:rgba(255,193,7,.15); color:#ffc107; }
+  .rsvp-pending  { background:rgba(255,255,255,.08); color:var(--sub); }
+  /* My events list */
+  .wp-my-event-item { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .wp-my-event-item img { width:50px; height:50px; border-radius:8px; object-fit:cover; }
+  .wp-my-event-item .info { flex:1; }
+  .wp-my-event-item .title { font-weight:600; color:var(--text); }
+  .wp-my-event-item .meta { font-size:12px; color:var(--sub); }
+  .wp-my-event-item .share-link { color:var(--accent2); font-size:13px; text-decoration:none; }
+  @media (max-width:768px) { #wedding-panel { width:100%; } }
+</style>
+
+<div id="wedding-panel-overlay" onclick="closeWeddingPanel()"></div>
+<div id="wedding-panel">
+  <div class="wp-header">
+    <h3>💍 Weddings &amp; Events</h3>
+    <button id="close-wedding-panel" onclick="closeWeddingPanel()">&times;</button>
+  </div>
+  <div class="wp-tabs">
+    <button class="wp-tab active" id="wp-tab-create" onclick="switchWpTab('create')">Create Event</button>
+    <button class="wp-tab" id="wp-tab-invite" onclick="switchWpTab('invite')">Invite Card</button>
+    <button class="wp-tab" id="wp-tab-guests" onclick="switchWpTab('guests')">Guest List</button>
+    <button class="wp-tab" id="wp-tab-myevents" onclick="switchWpTab('myevents')">My Events</button>
+  </div>
+
+  <!-- ── CREATE ── -->
+  <div class="wp-section" id="wp-create-section">
+    <div class="wp-field">
+      <label>Event Type</label>
+      <select id="wp-event-type">
+        <option value="wedding">💍 Wedding</option>
+        <option value="chilanga_mulilo">🍲 Chilanga Mulilo</option>
+        <option value="kitchen_party">🎀 Kitchen Party</option>
+        <option value="lobola">🐄 Lobola</option>
+        <option value="baby_shower">🍼 Baby Shower</option>
+        <option value="graduation">🎓 Graduation</option>
+        <option value="other">🎉 Other Celebration</option>
+      </select>
+    </div>
+    <div class="wp-field">
+      <label>Event Title</label>
+      <input type="text" id="wp-title" placeholder="e.g. Mwila &amp; Chanda Wedding">
+    </div>
+    <div class="wp-field" id="wp-names-wrap">
+      <label>Bride &amp; Groom Names</label>
+      <input type="text" id="wp-bride" placeholder="Bride's name" style="margin-bottom:6px;">
+      <input type="text" id="wp-groom" placeholder="Groom's name">
+    </div>
+    <div class="wp-field">
+      <label>Venue</label>
+      <input type="text" id="wp-venue" placeholder="e.g. Mulungushi Conference Centre, Lusaka">
+    </div>
+    <div class="wp-field">
+      <label>Date &amp; Time</label>
+      <input type="datetime-local" id="wp-date">
+    </div>
+    <div class="wp-field">
+      <label>Dress Code</label>
+      <input type="text" id="wp-dress" placeholder="e.g. Chitenge attire, Formal, Casual">
+    </div>
+    <div class="wp-field">
+      <label>RSVP Deadline</label>
+      <input type="date" id="wp-rsvp-deadline">
+    </div>
+    <div class="wp-field">
+      <label>Family Contact</label>
+      <input type="text" id="wp-family-name" placeholder="Contact person name" style="margin-bottom:6px;">
+      <input type="tel" id="wp-family-phone" placeholder="+260 97X XXX XXX">
+    </div>
+    <div class="wp-field">
+      <label>Description (optional)</label>
+      <textarea id="wp-description" placeholder="Any extra details for guests…"></textarea>
+    </div>
+    <div class="wp-field">
+      <label>Who can view this event?</label>
+      <div class="wp-vis-chips">
+        <button class="wp-vis-chip active" data-vis="invite_only" onclick="selectVisibility(this)">🔒 Invite Only</button>
+        <button class="wp-vis-chip" data-vis="contacts"    onclick="selectVisibility(this)">👥 My Contacts</button>
+        <button class="wp-vis-chip" data-vis="public"      onclick="selectVisibility(this)">🌐 Public Link</button>
+      </div>
+    </div>
+    <div class="wp-field">
+      <label>Cover Photo (optional)</label>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <input type="file" id="wp-cover-photo" accept="image/*,video/*" style="flex:1;">
+        <div id="wp-cover-preview" style="width:60px;height:60px;border-radius:8px;background:var(--mid);overflow:hidden;flex-shrink:0;border:1px solid var(--border);display:none;">
+          <img id="wp-cover-preview-img" style="width:100%;height:100%;object-fit:cover;">
+        </div>
+      </div>
+    </div>
+    <div class="modal-status" id="wp-create-status"></div>
+    <button class="wp-submit-btn" id="wp-create-btn" onclick="createWeddingEvent()">
+      <i class="fas fa-paper-plane"></i> Create Event &amp; Get Invite Link
+    </button>
+  </div>
+
+  <!-- ── INVITE CARD ── -->
+  <div class="wp-section" id="wp-invite-section" style="display:none;">
+    <div id="wp-invite-card-wrap">
+      <p style="font-size:13px;color:var(--sub);text-align:center;margin-bottom:16px;">
+        Create an event first, then share the card below with your guests.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── GUEST LIST ── -->
+  <div class="wp-section" id="wp-guests-section" style="display:none;">
+    <div class="wp-field">
+      <label>Invite a contact by username</label>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="wp-invite-username" placeholder="Username" style="flex:1;">
+        <button onclick="inviteToWeddingEvent()" style="padding:8px 14px;background:#e91e63;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">Invite</button>
+      </div>
+    </div>
+    <div class="modal-status" id="wp-invite-status"></div>
+    <div id="wp-guest-list" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- ── MY EVENTS ── -->
+  <div class="wp-section" id="wp-myevents-section" style="display:none;">
+    <div id="wp-myevents-list"></div>
+  </div>
+</div>

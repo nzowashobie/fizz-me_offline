@@ -1,0 +1,551 @@
+from django.shortcuts import render, redirect
+# views.py
+from django.shortcuts import render
+from django.contrib.auth import get_user_model
+
+from django.http import JsonResponse, Http404
+from django.contrib.auth import get_user_model
+from .models import Message, Attachment, Profile
+#install python -m pip install -U daphne and python -m pip install -U channels for prodcution we use redis channel
+
+#sign up
+
+from django.shortcuts import render, redirect
+from django.contrib.auth import login
+from .forms import SignUpForm
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+
+#server images
+import os
+from django.conf import settings
+from django.core.files.storage import default_storage
+
+
+# views.py
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from .models import Attachment, Message  # Import the Attachment and Message models
+
+import logging
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from .models import Attachment, Message  # Import the Attachment and Message models
+
+import os
+import base64
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import CustomUser
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
+import base64
+
+from django.http import JsonResponse
+from .models import Message
+
+def fetch_messages(request):
+    if request.method == "GET":
+        user = request.user
+        messages = Message.objects.filter(recipient=user).values('sender__username', 'message', 'timestamp')
+        return JsonResponse(list(messages), safe=False)
+    return JsonResponse({"status": "error", "message": "Invalid request method"}, status=400)
+
+# Generate a key pair
+def generate_key_pair():
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    # Serialize keys to PEM format
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    public_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    # Encode keys in Base64
+    private_key_base64 = base64.urlsafe_b64encode(private_pem).decode('utf-8')
+    public_key_base64 = base64.urlsafe_b64encode(public_pem).decode('utf-8')
+
+    return private_key_base64, public_key_base64
+
+# Function to encrypt a message using the recipient's public key
+def encrypt_message(message, public_key_base64):
+    try:
+        # Decode the public key from Base64
+        public_key_pem = base64.urlsafe_b64decode(public_key_base64.encode('utf-8'))
+        
+        # Load the public key
+        public_key = serialization.load_pem_public_key(
+            public_key_pem,
+            backend=default_backend()
+        )
+
+        # Encrypt the message using RSA-OAEP padding
+        encrypted_message = public_key.encrypt(
+            message.encode('utf-8'),  # Convert the message to bytes
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),  # Use SHA-256 for MGF1
+                algorithm=hashes.SHA256(),  # Use SHA-256 for the OAEP algorithm
+                label=None  # No label
+            )
+        )
+
+        # Return the encrypted message as a Base64-encoded string
+        return base64.urlsafe_b64encode(encrypted_message).decode('utf-8')
+    except Exception as e:
+        print(f"Error encrypting message: {e}")
+        raise e
+
+
+@csrf_exempt
+def get_public_key(request):
+    username = request.GET.get('username')
+    try:
+        user = CustomUser.objects.get(username=username)
+        return JsonResponse({'public_key': user.public_key})
+    except CustomUser.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+
+key = base64.urlsafe_b64encode(os.urandom(32))
+print(key.decode())
+
+
+logger = logging.getLogger(__name__)
+
+@csrf_exempt
+def upload_attachments(request):
+    if request.method == "POST":
+        uploaded_files = request.FILES.getlist("files")
+        saved_files = []
+
+        for file in uploaded_files:
+            try:
+                # Validate file size (e.g., 10MB limit)
+                if file.size > 10 * 1024 * 1024:  # 10MB
+                    raise ValueError("File size exceeds the limit (10MB).")
+
+                # Validate file type (e.g., allow only PDF, images, and text files)
+                allowed_types = ["application/pdf", "image/jpeg", "image/png", "text/plain"]
+                if file.content_type not in allowed_types:
+                    raise ValueError("File type not allowed.")
+
+                # Create an Attachment object (without associating it with a message)
+                attachment = Attachment(
+                    file=file,
+                    file_type=file.content_type,  # Set the file_type
+                )
+                attachment.save()  # This will encrypt the file automatically
+
+                # Get the URL of the saved file
+                file_url = default_storage.url(attachment.file.name)
+
+                saved_files.append({
+                    "id": attachment.id,  # Include the attachment ID
+                    "url": file_url,
+                    "name": file.name,
+                    "type": file.content_type,
+                })
+            except Exception as e:
+                # Log the error and continue processing other files
+                print(f"Error uploading file {file.name}: {str(e)}")
+                saved_files.append({
+                    "error": f"Failed to upload {file.name}: {str(e)}"
+                })
+
+        return JsonResponse(saved_files, safe=False)
+    return JsonResponse({"error": "Invalid request method"}, status=405)
+
+
+def get_attachments(request, message_id=None):
+    if request.method == "GET":
+        try:
+            if message_id:
+                # Fetch attachments for a specific message
+                attachments = Attachment.objects.filter(message_id=message_id)
+            else:
+                # Fetch all attachments
+                attachments = Attachment.objects.all()
+
+            if not attachments.exists():
+                return JsonResponse({"error": "No attachments found"}, status=404)
+
+            # Serialize attachments data
+            attachments_data = []
+            for attachment in attachments:
+                attachments_data.append({
+                    "id": attachment.id,  # Include the attachment ID
+                    "url": attachment.file.url,
+                    "name": os.path.basename(attachment.file.name),
+                    "type": attachment.file_type,
+                })
+
+            return JsonResponse(attachments_data, safe=False)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+    return JsonResponse({"error": "Invalid request method"}, status=405)
+
+
+@csrf_exempt
+def delete_attachments(request, message_id):
+    if request.method == "POST":
+        try:
+            message = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            return JsonResponse({"error": "Message not found"}, status=404)
+
+        # Delete all attachments for the message
+        Attachment.objects.filter(message=message).delete()
+        return JsonResponse({"success": True})
+    
+    return JsonResponse({"error": "Invalid request"}, status=400)
+
+##############################################################
+def signup_view(request):
+    if request.method == "POST":
+        form = SignUpForm(request.POST, request.FILES)
+        if form.is_valid():
+            user = form.save()
+
+            # Generate a new RSA key pair
+            private_key = rsa.generate_private_key(
+                public_exponent=65537,
+                key_size=2048,
+            )
+            public_key = private_key.public_key()
+
+            # Serialize the keys
+            private_pem = private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            )
+            public_pem = public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+
+            # Save the keys to the user's profile
+            user.public_key = public_pem.decode()
+            user.private_key = private_pem.decode()  # This will be encrypted automatically
+            user.save()
+
+            login(request, user)
+            return redirect("chat-page")
+        else:
+            print("Form errors:", form.errors)
+    else:
+        form = SignUpForm()
+
+    return render(request, "Signup.html", {"form": form})
+
+def chatPag(request):
+    # Exclude the current user and superusers (e.g., admin account)
+    users = get_user_model().objects.exclude(id=request.user.id).exclude(is_superuser=True)
+    return render(request, 'index.html', {'users': users})
+
+#show list of users
+def chat_view(request):
+    # Exclude the current user and superusers (e.g., admin account)
+    users = get_user_model().objects.exclude(id=request.user.id).exclude(is_superuser=True)
+    return render(request, 'index.html', {'users': users})
+# syore for history.py
+
+
+User = get_user_model()
+
+from django.http import JsonResponse, Http404
+from django.contrib.auth import get_user_model
+from .models import Message, Attachment  # Ensure Attachment is imported
+
+User = get_user_model()
+
+from django.shortcuts import get_object_or_404
+from django.http import JsonResponse
+from django.contrib.auth.models import User
+from django.db import models
+import logging
+from .models import Message
+
+logger = logging.getLogger(__name__)
+
+@csrf_exempt
+def get_messages(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'User not authenticated'}, status=403)
+
+    recipient_username = request.GET.get('recipient')
+    recipient = CustomUser.objects.get(username=recipient_username)
+
+    # Fetch messages that are not cleared for the logged-in user
+    messages = Message.objects.filter(
+        (Q(sender=request.user, recipient=recipient, cleared_by_sender=False) |
+        Q(sender=recipient, recipient=request.user, cleared_by_recipient=False))
+    )
+
+    message_list = []
+    for message in messages:
+        message_data = {
+            "id": message.id,
+            "sender": message.sender.username,
+            "recipient": message.recipient.username,
+            "ciphertext": message.ciphertext,
+            "iv": message.iv,
+            "timestamp": message.timestamp.isoformat(),
+        }
+        message_list.append(message_data)
+
+    return JsonResponse(message_list, safe=False)
+
+# notifition
+User = get_user_model()
+
+def mark_messages_as_read(request):
+    sender_username = request.GET.get('sender')  # Get the sender's username
+    try:
+        sender = User.objects.get(username=sender_username)
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Sender does not exist"}, status=404)
+
+    # Mark messages as read for the current user (recipient) from the sender
+    Message.objects.filter(
+        recipient=request.user,  # Current user is the recipient
+        sender=sender,          # Sender is the other user
+        is_read=False           # Only mark unread messages
+    ).update(is_read=True)
+
+    return JsonResponse({"status": "success"})
+
+User = get_user_model()
+
+def get_unread_message_count(request):
+    """
+    Fetch the unread message count for the current user from each sender.
+    """
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "User not authenticated"}, status=401)
+
+    # Get all users except the current user
+    users = User.objects.exclude(id=request.user.id)
+
+    # Fetch unread message count for each user
+    unread_counts = {}
+    for user in users:
+        count = Message.objects.filter(
+            recipient=request.user,  # Messages sent to the current user
+            sender=user,              # Messages from this specific user
+            is_read=False             # Only unread messages
+        ).count()
+        unread_counts[user.username] = count
+
+    return JsonResponse(unread_counts)
+
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+
+
+from django.views.decorators.http import require_http_methods
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+from .models import Message
+
+@login_required
+@require_http_methods(["DELETE"])
+def delete_attachments(request, message_id):
+    try:
+        # Fetch the message
+        message = Message.objects.get(id=message_id)
+
+        # Ensure the logged-in user is either the sender or recipient
+        if request.user != message.sender and request.user != message.recipient:
+            return JsonResponse({"status": "error", "message": "You do not have permission to delete this message."}, status=403)
+
+        # Mark the message as cleared for the logged-in user
+        if request.user == message.sender:
+            message.cleared_by_sender = True
+        elif request.user == message.recipient:
+            message.cleared_by_recipient = True
+
+        message.save()
+
+        return JsonResponse({"status": "success", "message": "Message cleared for the logged-in user."})
+    except Message.DoesNotExist:
+        return JsonResponse({"status": "error", "message": "Message not found"}, status=404)
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+
+@csrf_exempt
+def upload_profile_picture(request):
+    if request.method == "POST" and request.FILES.get("profile_picture"):
+        profile_picture = request.FILES["profile_picture"]
+        file_name = default_storage.save(f"profile_pictures/{profile_picture.name}", profile_picture)
+        file_url = default_storage.url(file_name)
+
+        # Save the new profile picture URL to the user's profile
+        request.user.profile.profile_picture = file_name  # Save the file name, not the URL
+        request.user.profile.save()
+
+        return JsonResponse({"profile_picture_url": file_url})
+    return JsonResponse({"error": "Invalid request"}, status=400)
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import Message
+
+#clear chat
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+import json
+import logging
+from django.db.models import Q
+from .models import Message, CustomUser
+
+logger = logging.getLogger(__name__)
+
+@csrf_exempt
+@login_required
+def clear_chat(request):
+    if request.method == "POST":
+        try:
+            # Parse the JSON data from the request body
+            data = json.loads(request.body)
+            logger.info(f"Request data: {data}")  # Log the request data
+
+            recipient_username = data.get("recipient_id")
+            if not recipient_username:
+                logger.error("Recipient ID is missing in the request.")
+                return JsonResponse({"error": "Recipient ID is required."}, status=400)
+
+            # Fetch the recipient user object
+            try:
+                recipient = CustomUser.objects.get(username=recipient_username)
+            except CustomUser.DoesNotExist:
+                logger.error(f"Recipient not found: {recipient_username}")
+                return JsonResponse({"error": "Recipient not found."}, status=404)
+
+            # Mark messages sent by the logged-in user as cleared
+            Message.objects.filter(
+                Q(sender=request.user, recipient=recipient)
+            ).update(
+                cleared_by_sender=True  # Mark as cleared by the sender
+            )
+
+            # Mark messages received by the logged-in user as cleared
+            Message.objects.filter(
+                Q(sender=recipient, recipient=request.user)
+            ).update(
+                cleared_by_recipient=True  # Mark as cleared by the recipient
+            )
+
+            logger.info(f"Chat cleared for user: {request.user.username} with recipient: {recipient_username}")
+            return JsonResponse({"message": "Chat cleared successfully."}, status=200)
+
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON data in the request.")
+            return JsonResponse({"error": "Invalid JSON data."}, status=400)
+
+        except Exception as e:
+            logger.error(f"Error clearing chat: {str(e)}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+    logger.error("Invalid request method.")
+    return JsonResponse({"error": "Invalid request method."}, status=405)
+
+
+
+####
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import CustomUser, BlockedUser  # Use CustomUser consistently
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import CustomUser, BlockedUser
+# Helper function to check if a user is blocked
+def is_user_blocked(user, blocked_user):
+    return BlockedUser.objects.filter(user=user, blocked_user=blocked_user).exists()
+
+
+
+@csrf_exempt
+def block_user(request):
+    if request.method == "POST":
+        user_to_block_id = request.POST.get("user_id")  # Use request.POST for form data
+        try:
+            user_to_block = CustomUser.objects.get(id=user_to_block_id)
+            # Check if the user is already blocked
+            if not BlockedUser.objects.filter(user=request.user, blocked_user=user_to_block).exists():
+                BlockedUser.objects.create(user=request.user, blocked_user=user_to_block)
+                return JsonResponse({"status": "success", "message": "User blocked successfully."})
+            else:
+                return JsonResponse({"status": "error", "message": "User is already blocked."}, status=400)
+        except CustomUser.DoesNotExist:
+            return JsonResponse({"status": "error", "message": "User not found."}, status=404)
+    return JsonResponse({"status": "error", "message": "Invalid request method."}, status=400)
+
+
+@csrf_exempt
+def send_message(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
+        recipient_username = data.get("recipient")
+        ciphertext = data.get("ciphertext")
+        iv = data.get("iv")
+
+        try:
+            recipient = CustomUser.objects.get(username=recipient_username)
+            sender = request.user
+
+            # Save the encrypted message
+            Message.objects.create(
+                sender=sender,
+                recipient=recipient,
+                ciphertext=ciphertext,
+                iv=iv,
+            )
+
+            return JsonResponse({"status": "success"})
+        except CustomUser.DoesNotExist:
+            return JsonResponse({"status": "error", "message": "Recipient not found"}, status=404)
+    return JsonResponse({"status": "error", "message": "Invalid request method"}, status=400)
+
+@csrf_exempt
+def unblock_user(request):
+    if request.method == "POST":
+        user_to_unblock_id = request.POST.get("user_id")
+        try:
+            user_to_unblock = CustomUser.objects.get(id=user_to_unblock_id)
+            BlockedUser.objects.filter(user=request.user, blocked_user=user_to_unblock).delete()
+            return JsonResponse({"status": "success", "message": "User unblocked successfully."})
+        except CustomUser.DoesNotExist:
+            return JsonResponse({"status": "error", "message": "User not found."}, status=404)
+    return JsonResponse({"status": "error", "message": "Invalid request method."}, status=400)
+
+@csrf_exempt
+def delete_attachment(request):
+    if request.method == "POST":
+        attachment_id = request.POST.get("id")
+        try:
+            attachment = Attachment.objects.get(id=attachment_id)
+            attachment.delete()
+            return JsonResponse({"message": "Attachment deleted successfully"}, status=200)
+        except Attachment.DoesNotExist:
+            return JsonResponse({"error": "Attachment not found"}, status=404)
+    return JsonResponse({"error": "Invalid request"}, status=400) 

@@ -1,0 +1,399 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ event.get_event_type_display }} — {{ event.title }}</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a1929;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      width: 100%;
+      max-width: 480px;
+      position: relative;
+      aspect-ratio: 16/9;
+      overflow: hidden;
+      background: linear-gradient(135deg, #880e4f, #c62828, #4a148c);
+    }
+    .hero img, .hero video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .hero-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,.75));
+    }
+    .hero-badge {
+      position: absolute; top: 14px; left: 14px;
+      background: rgba(0,0,0,.5);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 20px;
+      backdrop-filter: blur(6px);
+      letter-spacing: .5px;
+    }
+    .hero-title {
+      position: absolute; bottom: 20px; left: 18px; right: 18px;
+      font-size: clamp(18px, 5vw, 26px);
+      font-weight: 800;
+      color: #fff;
+      text-shadow: 0 2px 8px rgba(0,0,0,.6);
+      line-height: 1.2;
+    }
+
+    /* ── Card ── */
+    .card {
+      width: 100%; max-width: 480px;
+      background: #0f2744;
+      border-radius: 0 0 20px 20px;
+      padding: 24px 20px 32px;
+    }
+
+    .couple {
+      text-align: center;
+      font-size: 22px;
+      font-weight: 800;
+      color: #f8bbd0;
+      margin-bottom: 20px;
+      letter-spacing: -.3px;
+    }
+
+    .details-grid {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .detail-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .detail-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.08);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .detail-body { flex: 1; }
+    .detail-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #64748b;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .detail-value {
+      font-size: 14px;
+      color: #e2e8f0;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .description {
+      background: rgba(255,255,255,.05);
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    /* ── RSVP ── */
+    .rsvp-section {
+      margin-bottom: 22px;
+    }
+    .rsvp-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #64748b;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .rsvp-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .rsvp-btn {
+      flex: 1;
+      padding: 12px 8px;
+      border: 2px solid transparent;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .2s;
+      background: rgba(255,255,255,.06);
+      color: #94a3b8;
+      text-align: center;
+    }
+    .rsvp-btn.accept  { border-color: #22c55e; color: #22c55e; }
+    .rsvp-btn.decline { border-color: #ef4444; color: #ef4444; }
+    .rsvp-btn.maybe   { border-color: #f59e0b; color: #f59e0b; }
+    .rsvp-btn.active-accept  { background: #22c55e; color: #fff; }
+    .rsvp-btn.active-decline { background: #ef4444; color: #fff; }
+    .rsvp-btn.active-maybe   { background: #f59e0b; color: #fff; }
+    .rsvp-status-msg {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #22c55e;
+      text-align: center;
+      min-height: 20px;
+    }
+
+    /* ── Open in app ── */
+    .open-app-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #128c7e, #25d366);
+      border: none;
+      border-radius: 14px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      margin-bottom: 12px;
+      transition: opacity .15s;
+    }
+    .open-app-btn:hover { opacity: .9; }
+
+    .share-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+    .share-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s;
+    }
+    .share-chip:hover { opacity: .85; }
+    .chip-wa { background: #25d366; color: #fff; }
+    .chip-copy { background: rgba(255,255,255,.1); color: #94a3b8; }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 11px;
+      color: #334155;
+      padding-bottom: 32px;
+    }
+    .footer a { color: #475569; text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  {% if cover_photo %}
+    {% if '.mp4' in cover_photo or '.webm' in cover_photo or '.mov' in cover_photo %}
+      <video src="{{ cover_photo }}" autoplay muted loop playsinline></video>
+    {% else %}
+      <img src="{{ cover_photo }}" alt="{{ event.title }}">
+    {% endif %}
+  {% endif %}
+  <div class="hero-overlay"></div>
+  <div class="hero-badge">{{ event.get_event_type_display }}</div>
+  <div class="hero-title">{{ event.title }}</div>
+</div>
+
+<!-- Card -->
+<div class="card">
+
+  {% if event.bride_name and event.groom_name %}
+  <div class="couple">{{ event.bride_name }} 💕 {{ event.groom_name }}</div>
+  {% endif %}
+
+  <div class="details-grid">
+    {% if event_date_fmt %}
+    <div class="detail-row">
+      <div class="detail-icon">📅</div>
+      <div class="detail-body">
+        <div class="detail-label">Date &amp; Time</div>
+        <div class="detail-value">{{ event_date_fmt }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if event.venue %}
+    <div class="detail-row">
+      <div class="detail-icon">📍</div>
+      <div class="detail-body">
+        <div class="detail-label">Venue</div>
+        <div class="detail-value">{{ event.venue }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if event.dress_code %}
+    <div class="detail-row">
+      <div class="detail-icon">👗</div>
+      <div class="detail-body">
+        <div class="detail-label">Dress Code</div>
+        <div class="detail-value">{{ event.dress_code }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if rsvp_deadline_fmt %}
+    <div class="detail-row">
+      <div class="detail-icon">⏰</div>
+      <div class="detail-body">
+        <div class="detail-label">RSVP By</div>
+        <div class="detail-value">{{ rsvp_deadline_fmt }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if event.family_contact %}
+    <div class="detail-row">
+      <div class="detail-icon">📞</div>
+      <div class="detail-body">
+        <div class="detail-label">Family Contact</div>
+        <div class="detail-value">{{ event.family_contact }}{% if event.family_phone %} · {{ event.family_phone }}{% endif %}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="detail-row">
+      <div class="detail-icon">👤</div>
+      <div class="detail-body">
+        <div class="detail-label">Hosted by</div>
+        <div class="detail-value">{{ event.host.username }}</div>
+      </div>
+    </div>
+  </div>
+
+  {% if event.description %}
+  <div class="description">{{ event.description }}</div>
+  {% endif %}
+
+  <!-- RSVP -->
+  {% if request.user.is_authenticated %}
+  <div class="rsvp-section">
+    <div class="rsvp-title">Your RSVP</div>
+    <div class="rsvp-btns">
+      <button class="rsvp-btn accept {% if your_rsvp == 'accepted' %}active-accept{% endif %}"
+              onclick="sendRsvp('accepted', this)">✅ Attending</button>
+      <button class="rsvp-btn maybe {% if your_rsvp == 'maybe' %}active-maybe{% endif %}"
+              onclick="sendRsvp('maybe', this)">🤔 Maybe</button>
+      <button class="rsvp-btn decline {% if your_rsvp == 'declined' %}active-decline{% endif %}"
+              onclick="sendRsvp('declined', this)">❌ Can't Go</button>
+    </div>
+    <div class="rsvp-status-msg" id="rsvp-msg">
+      {% if your_rsvp %}
+        Your response: <strong>{{ your_rsvp }}</strong>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <a href="{% url 'login-user' %}?next={{ request.path }}" class="open-app-btn">
+    <i class="fas fa-sign-in-alt"></i> Log in to RSVP
+  </a>
+  {% endif %}
+
+  <!-- Open in Asterix app -->
+  <a href="asterix://chat/{{ event.host.username }}" class="open-app-btn">
+    <i class="fas fa-comment-dots"></i> Open in Asterix
+  </a>
+
+  <!-- Share -->
+  <div class="share-row">
+    <button class="share-chip chip-wa" onclick="shareWa()">
+      <i class="fab fa-whatsapp"></i> Share
+    </button>
+    <button class="share-chip chip-copy" id="copy-btn" onclick="copyLink()">
+      <i class="fas fa-copy"></i> Copy Link
+    </button>
+  </div>
+
+</div>
+
+<div class="footer">
+  Powered by <a href="https://fizzme.pythonanywhere.com">Asterix</a> · Zambia's community chat
+</div>
+
+<script>
+  var EVENT_ID     = {{ event.id }};
+  var CSRF         = '{{ csrf_token }}';
+  var INVITE_URL   = window.location.href;
+  var EVENT_TITLE  = {{ event.title|escapejs|json_script:"" }};
+
+  function sendRsvp(choice, btn) {
+    fetch('/api/events/' + EVENT_ID + '/rsvp/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({ rsvp: choice })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var msg = document.getElementById('rsvp-msg');
+      if (d.status === 'success') {
+        // Clear active classes
+        document.querySelectorAll('.rsvp-btn').forEach(function(b) {
+          b.classList.remove('active-accept','active-decline','active-maybe');
+        });
+        var cls = { accepted: 'active-accept', declined: 'active-decline', maybe: 'active-maybe' };
+        btn.classList.add(cls[choice] || '');
+        msg.textContent = 'Your response: ' + choice;
+        msg.style.color = '#22c55e';
+      } else {
+        msg.textContent = d.error || 'Could not save RSVP.';
+        msg.style.color = '#ef4444';
+      }
+    })
+    .catch(function() {
+      document.getElementById('rsvp-msg').textContent = 'Network error — try again.';
+    });
+  }
+
+  function shareWa() {
+    var title = document.querySelector('.hero-title') ? document.querySelector('.hero-title').textContent.trim() : 'Event';
+    var text  = '💍 You are invited to ' + title + '!\n\nSee details and RSVP here:\n' + INVITE_URL;
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(INVITE_URL).then(function() {
+      var btn = document.getElementById('copy-btn');
+      btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+      setTimeout(function() { btn.innerHTML = '<i class="fas fa-copy"></i> Copy Link'; }, 2000);
+    });
+  }
+</script>
+</body>
+</html>

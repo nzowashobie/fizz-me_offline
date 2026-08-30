@@ -1,0 +1,11 @@
+{% if not request.user.is_authenticated %}
+<div id="auth-wall" class="show">
+  <div class="aw-logo"><i class="fas fa-comment-dots"></i></div>
+  <h2>Welcome to Fizz-me</h2>
+  <p>Zambia's community chat platform. Log in to see your chats, statuses and more.</p>
+  <div class="aw-actions">
+    <a href="{% url 'login-user' %}" class="aw-btn primary"><i class="fas fa-sign-in-alt"></i> Log In</a>
+    <a href="{% url 'signup-user' %}" class="aw-btn secondary"><i class="fas fa-user-plus"></i> Sign Up</a>
+  </div>
+</div>
+{% endif %}

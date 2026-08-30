@@ -1,0 +1,47 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>{% block title %}Asterix{% endblock %}</title>
+
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
+    <!-- Global styling variables (minimal) -->
+    <style>
+        :root {
+            --primary-color: #128c7e;
+            --primary-dark: #075e54;
+            --bg-color: #ece5dd;
+            --text-color: #333;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+
+    <!-- Block for template‑specific CSS (child templates add their own) -->
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+    <!-- Main Content Block -->
+    {% block content %}
+    {% endblock %}
+
+    <!-- Block for template‑specific Scripts (child templates add their own) -->
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

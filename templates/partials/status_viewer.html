@@ -1,0 +1,177 @@
+<!-- ─────────────────────────────────────────────────────────────────
+     STATUS VIEWER MODAL  (replace your existing #status-viewer-modal)
+     Only the #sv-cat-end block and #sv-cat-replay-btn are new;
+     everything else is unchanged from the original.
+     ───────────────────────────────────────────────────────────────── -->
+<div id="status-viewer-modal">
+  <!-- Segments -->
+  <div class="sv-segments" id="sv-segments"></div>
+
+  <!-- Header -->
+  <div class="sv-header">
+    <img id="sv-avatar" src="" alt="User avatar">
+    <div class="sv-user">
+      <strong id="sv-username"></strong>
+      <small id="sv-time"></small>
+    </div>
+    <span class="sv-cat-badge" id="sv-cat"></span>
+    <button id="sv-wedding-btn" style="display:none;" onclick="svClose();setTimeout(openWeddingPanel,300);" title="Create Celebrations Event">💍</button>
+    <button id="sv-forward-btn" aria-label="Forward status" title="Forward"><i class="fas fa-share"></i></button>
+    <button id="sv-share-btn" aria-label="Share status" title="Share"><i class="fas fa-external-link-alt"></i></button>
+    <button id="sv-close" aria-label="Close status viewer"><i class="fas fa-times"></i></button>
+  </div>
+
+  <!-- Media -->
+  <div class="sv-media-wrap">
+    <img id="sv-img" src="" alt="Status image">
+    <video id="sv-vid" src="" playsinline></video>
+  </div>
+
+  <!-- Caption -->
+  <div id="sv-caption"></div>
+
+  <!-- ── Commerce: price & actions ────────────────────────────────────── -->
+  <div id="sv-commerce-bar" style="display:none; position:absolute; bottom:190px; left:0; right:0; z-index:6; text-align:center; padding:0 20px;">
+    <div style="background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); border-radius:16px; padding:12px 16px; display:inline-flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;">
+      <span id="sv-price-badge" style="font-size:18px; font-weight:700; color:#e6a817;"></span>
+      <span id="sv-avail-badge" style="font-size:12px; background:rgba(255,255,255,0.1); padding:2px 10px; border-radius:12px; color:#fff;"></span>
+      <div id="sv-action-container" style="display:flex; gap:8px; align-items:center;"></div>
+    </div>
+  </div>
+
+  <!-- Ad bar -->
+  <button id="sv-ad-bar">
+    <span id="sv-ad-badge">AD</span>
+    <span id="sv-ad-label"></span>
+    <i class="fas fa-external-link-alt"></i>
+  </button>
+
+  <!-- Centered pause indicator -->
+  <div id="sv-pause-indicator">
+    <i class="fas fa-pause-circle"></i>
+  </div>
+
+  <!-- Tap zones -->
+  <div class="sv-tap" id="sv-tap-left"></div>
+  <div class="sv-tap" id="sv-tap-right"></div>
+
+  <!-- Share sheet -->
+  <div id="sv-share-overlay" class="sv-share-overlay">
+    <div class="sv-share-sheet">
+      <div class="sv-share-title">Share to</div>
+      <div class="sv-share-icons">
+        <button class="sv-share-icon" id="share-wa"><i class="fab fa-whatsapp bg-wa"></i>WhatsApp</button>
+        <button class="sv-share-icon" id="share-fb"><i class="fab fa-facebook-f bg-fb"></i>Facebook</button>
+        <button class="sv-share-icon" id="share-tk"><i class="fab fa-tiktok bg-tk"></i>TikTok</button>
+      </div>
+      <button class="sv-share-close" id="sv-share-close">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── End-of-category screen ──────────────────────────────────────────
+       Three buttons now: Replay (gold, primary), Next Category, Close.
+       showCategoryEnd() in status.js controls which ones are visible
+       and wires their onclick handlers on each call.
+       ─────────────────────────────────────────────────────────────────── -->
+  <div id="sv-cat-end">
+    <div class="sv-cat-end-icon" id="sv-cat-end-icon">✅</div>
+    <div class="sv-cat-end-title" id="sv-cat-end-title">All caught up!</div>
+    <div class="sv-cat-end-sub" id="sv-cat-end-sub">You've seen all statuses in this category.</div>
+    <div class="sv-cat-end-btns">
+      <!-- Replay — always present; JS hides/shows and relabels it -->
+      <button id="sv-cat-replay-btn" style="display:none;">
+        <i class="fas fa-redo"></i> Replay
+      </button>
+      <!-- Next category — hidden when already on the last category -->
+      <button class="sv-cat-end-btn next" id="sv-cat-next-btn" style="display:none;">
+        Next Category <i class="fas fa-arrow-right"></i>
+      </button>
+      <!-- Close — always visible -->
+      <button class="sv-cat-end-btn close" id="sv-cat-close-btn" onclick="svClose()">
+        <i class="fas fa-times"></i> Close
+      </button>
+    </div>
+  </div>
+
+  <!-- Category transition -->
+  <div id="sv-category-transition">
+    <div class="sv-ct-icon" id="sv-ct-icon">🌐</div>
+    <div class="sv-ct-label">Now entering</div>
+    <div class="sv-ct-name" id="sv-ct-name">General</div>
+    <div class="sv-ct-bar"><div class="sv-ct-bar-fill"></div></div>
+    <!-- .sv-ct-replay-skip is injected here dynamically by openViewer()
+         when a category is empty so the user can abort the auto-skip -->
+  </div>
+
+  <!-- Reactions & reply -->
+  <div id="sv-reaction-bar">
+    <div class="sv-emoji-row" id="sv-emoji-row"></div>
+    <div class="sv-reply-row">
+      <input class="sv-reply-input" id="sv-reply-input" type="text" placeholder="Reply to this status…" maxlength="200">
+      <button class="sv-reply-send" id="sv-reply-send" aria-label="Send reply"><i class="fas fa-paper-plane"></i></button>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* ── Pause indicator ──────────────────────────────────────────── */
+  #sv-pause-indicator {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    background: rgba(0, 0, 0, 0.4);
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  #sv-pause-indicator.show {
+    display: flex;
+  }
+  #sv-pause-indicator i {
+    font-size: 64px;
+    color: #fff;
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+    animation: pulsePause 1.2s ease-in-out infinite;
+  }
+  @keyframes pulsePause {
+    0%   { transform: scale(1);    opacity: 1;    }
+    50%  { transform: scale(1.15); opacity: 0.85; }
+    100% { transform: scale(1);    opacity: 1;    }
+  }
+
+  /* ── End-screen button row: three buttons in a column on mobile,
+        row on wider screens ─────────────────────────────────────── */
+  .sv-cat-end-btns {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  @media (min-width: 420px) {
+    .sv-cat-end-btns {
+      flex-direction: row;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+  }
+
+  /* ── Skip-retry button inside the category transition banner ──── */
+  .sv-ct-replay-skip {
+    display: block;
+    margin: 10px auto 0;
+    background: rgba(230, 168, 23, 0.18);
+    border: 1px solid rgba(230, 168, 23, 0.4);
+    border-radius: 20px;
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #e6a817;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .sv-ct-replay-skip:hover {
+    background: rgba(230, 168, 23, 0.3);
+  }
+</style>

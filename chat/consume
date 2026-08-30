@@ -1,0 +1,281 @@
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.roomGroupName = "group_chat_gfg"
+        await self.channel_layer.group_add(
+            self.roomGroupName ,
+            self.channel_name
+        )
+        await self.accept()
+
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(  # Corrected method
+        self.roomGroupName,  
+        self.channel_name  
+    )
+   
+    async def receive(self, text_data):
+        text_data_json = json.loads(text_data)
+        message = text_data_json["message"]
+        username = text_data_json["username"]
+        await self.channel_layer.group_send(
+            self.roomGroupName,{
+                "type" : "sendMessage" ,
+                "message" : message , 
+                "username" : username ,
+            })
+    async def sendMessage(self , event) : 
+        message = event["message"]
+        username = event["username"]
+        await self.send(text_data = json.dumps({"message":message ,"username":username}))
+      
+#user - user
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from asgiref.sync import sync_to_async
+from django.contrib.auth import get_user_model
+from .models import Message, Attachment
+from django.core.files.base import ContentFile
+import base64
+
+# Get the User model
+User = get_user_model()
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.sender = self.scope["user"].username
+        print(f"WebSocket connected: {self.sender}")  # Log the connection
+
+        # Add the user to their own group
+        await self.channel_layer.group_add(
+            f"chat_{self.sender}",
+            self.channel_name
+        )
+
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        print(f"WebSocket disconnected: {self.sender}")  # Log the disconnection
+
+        # Remove the user from their group
+        await self.channel_layer.group_discard(
+            f"chat_{self.sender}",
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        print("Received data:", data)  # Log the received data
+
+        message = data.get("message")
+        recipient = data.get("recipient")
+        attachments = data.get("attachments", [])
+
+        # Save the message to the database
+        message_id = await self.save_message(self.sender, recipient, message)
+
+        # Save attachments
+        saved_attachments = []
+        for attachment in attachments:
+            attachment_data = await self.save_attachment(message_id, attachment)
+            saved_attachments.append(attachment_data)
+
+        # Send the message to the recipient's group
+        await self.channel_layer.group_send(
+            f"chat_{recipient}",
+            {
+                "type": "chat_message",
+                "message": message,
+                "sender": self.sender,
+                "attachments": saved_attachments,
+            }
+        )
+
+        # Send the message to the sender's group (for real-time update)
+        await self.channel_layer.group_send(
+            f"chat_{self.sender}",
+            {
+                "type": "chat_message",
+                "message": message,
+                "sender": self.sender,
+                "attachments": saved_attachments,
+            }
+        )
+
+    async def chat_message(self, event):
+        # Send the message to the WebSocket
+        await self.send(text_data=json.dumps({
+            "message": event["message"],
+            "sender": event["sender"],
+            "attachments": event.get("attachments", []),
+        }))
+
+    @sync_to_async
+    def save_message(self, sender, recipient, message):
+        sender_user = User.objects.get(username=sender)
+        recipient_user = User.objects.get(username=recipient)
+        message_obj = Message.objects.create(
+            sender=sender_user,
+            recipient=recipient_user,
+            message=message,
+        )
+        return message_obj.id
+@sync_to_async
+def save_attachment(self, message_id, attachment):
+    message = Message.objects.get(id=message_id)
+    file_data = base64.b64decode(attachment["file_data"])
+    file_name = attachment["file_name"]
+    file = ContentFile(file_data, name=file_name)
+    attachment_obj = Attachment.objects.create(
+        message=message,
+        file=file,
+    )
+    print(f"Attachment saved: {attachment_obj.file.url}")  # Log the file URL
+    return {
+        "file": attachment_obj.file.url,  # Use file.url directly (it already includes /media/)
+        "file_name": attachment_obj.file.name,
+    }
+
+#user - t0 user
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from asgiref.sync import sync_to_async
+from django.contrib.auth import get_user_model
+from .models import Message, Attachment
+from django.core.files.base import ContentFile
+import base64
+
+# Get the User model
+User = get_user_model()
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.sender = self.scope["user"].username
+        print(f"WebSocket connected: {self.sender}")  # Log the connection
+
+        # Add the user to their own group
+        await self.channel_layer.group_add(
+            f"chat_{self.sender}",
+            self.channel_name
+        )
+
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        print(f"WebSocket disconnected: {self.sender}")  # Log the disconnection
+
+        # Remove the user from their group
+        await self.channel_layer.group_discard(
+            f"chat_{self.sender}",
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        print("Received data:", data)  # Log the received data
+
+        message = data.get("message")
+        recipient = data.get("recipient")
+        attachments = data.get("attachments", [])
+
+        # Save the message to the database
+        message_id = await self.save_message(self.sender, recipient, message)
+
+        # Save attachments
+        saved_attachments = []
+        for attachment in attachments:
+            attachment_data = await self.save_attachment(message_id, attachment)
+            saved_attachments.append(attachment_data)
+
+        # Send the message to the recipient's group
+        await self.channel_layer.group_send(
+            f"chat_{recipient}",
+            {
+                "type": "chat_message",
+                "message": message,
+                "sender": self.sender,
+                "attachments": saved_attachments,
+                "unread_count": await self.get_unread_count(recipient),  # Include unread count
+            }
+        )
+
+        # Send the message back to the sender's group
+        await self.channel_layer.group_send(
+            f"chat_{self.sender}",
+            {
+                "type": "chat_message",
+                "message": message,
+                "sender": self.sender,
+                "attachments": saved_attachments,
+                "unread_count": await self.get_unread_count(self.sender),  # Include unread count
+            }
+        )
+
+        # Send a notification to the recipient
+        await self.channel_layer.group_send(
+            f"notify_{recipient}",
+            {
+                "type": "notification",
+                "sender": self.sender,
+                "message": "You have a new message",
+                "unread_count": await self.get_unread_count(recipient),
+            }
+        )
+
+    async def chat_message(self, event):
+        # Send the message to the WebSocket
+        await self.send(text_data=json.dumps({
+            "type": "chat_message",
+            "message": event["message"],
+            "sender": event["sender"],
+            "attachments": event.get("attachments", []),
+            "unread_count": event.get("unread_count", 0),  # Include unread count
+        }))
+
+    async def notification(self, event):
+        # Send a notification to the WebSocket
+        await self.send(text_data=json.dumps({
+            "type": "notification",
+            "sender": event["sender"],
+            "message": event["message"],
+            "unread_count": event.get("unread_count", 0),
+        }))
+
+    @sync_to_async
+    def save_message(self, sender, recipient, message):
+        sender_user = User.objects.get(username=sender)
+        recipient_user = User.objects.get(username=recipient)
+        message_obj = Message.objects.create(
+            sender=sender_user,
+            recipient=recipient_user,
+            message=message,
+            is_read=False,  # Mark message as unread
+        )
+        return message_obj.id
+
+    @sync_to_async
+    def save_attachment(self, message_id, attachment):
+        message = Message.objects.get(id=message_id)
+        file_data = base64.b64decode(attachment["file_data"])
+        file_name = attachment["file_name"]
+        file = ContentFile(file_data, name=file_name)
+        attachment_obj = Attachment.objects.create(
+            message=message,
+            file=file,
+        )
+        print(f"Attachment saved: {attachment_obj.file.url}")  # Log the file URL
+        return {
+            "file": attachment_obj.file.url,  # Use file.url directly (it already includes /media/)
+            "file_name": attachment_obj.file.name,
+        }
+
+    @sync_to_async
+    def get_unread_count(self, recipient):
+        return Message.objects.filter(recipient__username=recipient, is_read=False).count()

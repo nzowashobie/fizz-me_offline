@@ -1,0 +1,7 @@
+{% load static %}
+<script>
+  window.ASTERIX = window.ASTERIX || {};
+  window.ASTERIX.CSRF = "{{ csrf_token }}";
+  window.ASTERIX.VAPID_PUBLIC_KEY = "{{ VAPID_PUBLIC_KEY_JS }}";
+</script>
+<script src="{% static 'js/modules/pwa-bridge.js' %}"></script>

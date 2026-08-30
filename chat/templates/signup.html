@@ -1,0 +1,929 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asterix — Sign Up</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.min.css">
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.ico' %}">
+    <style>
+        /* ════════════════════════════════════════════
+           RESET & BASE
+           ════════════════════════════════════════════ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b141a;
+            background-image:
+                radial-gradient(ellipse at 20% 50%, rgba(18, 140, 126, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 50%, rgba(37, 211, 102, 0.08) 0%, transparent 60%),
+                linear-gradient(135deg, #0b141a 0%, #111616 50%, #0b141a 100%);
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Decorative animated blobs */
+        body::before,
+        body::after {
+            content: '';
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::before {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, #128c7e, transparent 70%);
+            top: -100px;
+            right: -100px;
+            animation: floatBlob 8s ease-in-out infinite alternate;
+        }
+        body::after {
+            width: 350px;
+            height: 350px;
+            background: radial-gradient(circle, #25d366, transparent 70%);
+            bottom: -80px;
+            left: -80px;
+            animation: floatBlob 10s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes floatBlob {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, -30px) scale(1.2); }
+        }
+
+        /* ════════════════════════════════════════════
+           MAIN CARD
+           ════════════════════════════════════════════ */
+        .signup-container {
+            position: relative;
+            z-index: 1;
+            background: rgba(26, 31, 31, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 24px;
+            padding: 40px 36px 44px;
+            width: 100%;
+            max-width: 440px;
+            box-shadow:
+                0 25px 80px rgba(0, 0, 0, 0.6),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            animation: cardIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(30px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* ── Header ── */
+        .signup-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .signup-header .logo-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #128c7e, #0d6b5e);
+            border-radius: 18px;
+            font-size: 28px;
+            color: #fff;
+            margin-bottom: 16px;
+            box-shadow: 0 8px 24px rgba(18, 140, 126, 0.35);
+        }
+
+        .signup-header h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #e9edef;
+            letter-spacing: -0.3px;
+        }
+
+        .signup-header p {
+            font-size: 14px;
+            color: #8696a0;
+            margin-top: 6px;
+            font-weight: 400;
+        }
+
+        /* ── Form ── */
+        #signup-form {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #8696a0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group label i {
+            color: #25d366;
+            font-size: 13px;
+            width: 16px;
+            text-align: center;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1.5px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            color: #e9edef;
+            font-size: 15px;
+            transition: all 0.25s ease;
+            outline: none;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            border-color: #25d366;
+            background: rgba(255, 255, 255, 0.07);
+            box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.08);
+        }
+
+        .form-group input::placeholder {
+            color: #5a6a72;
+        }
+
+        .form-group input.error {
+            border-color: #f15c6d;
+            box-shadow: 0 0 0 4px rgba(241, 92, 109, 0.08);
+        }
+
+        /* ── Password strength bar ── */
+        .password-strength {
+            margin-top: 6px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .password-strength.show {
+            display: flex;
+        }
+
+        .strength-bar {
+            height: 4px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.06);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .strength-bar .fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 4px;
+            transition: width 0.4s ease, background 0.4s ease;
+        }
+
+        .strength-text {
+            font-size: 11px;
+            color: #8696a0;
+            letter-spacing: 0.3px;
+        }
+
+        /* ── Profile Picture Upload ── */
+        .profile-pic-upload {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1.5px dashed rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .profile-pic-upload:hover {
+            border-color: rgba(37, 211, 102, 0.3);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .profile-pic-upload .upload-avatar {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: #5a6a72;
+            flex-shrink: 0;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.06);
+            transition: border-color 0.3s ease;
+        }
+
+        .profile-pic-upload .upload-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .profile-pic-upload .upload-info {
+            flex: 1;
+        }
+
+        .profile-pic-upload .upload-info .label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #e9edef;
+        }
+
+        .profile-pic-upload .upload-info .hint {
+            font-size: 12px;
+            color: #5a6a72;
+            margin-top: 2px;
+        }
+
+        .profile-pic-upload .upload-icon {
+            color: #25d366;
+            font-size: 18px;
+            opacity: 0.6;
+            transition: opacity 0.2s ease;
+        }
+
+        .profile-pic-upload:hover .upload-icon {
+            opacity: 1;
+        }
+
+        #id_profile_picture {
+            display: none;
+        }
+
+        /* ── Intl-Tel-Input Overrides ── */
+        .iti {
+            width: 100% !important;
+        }
+
+        .iti__flag-container {
+            padding: 0 6px;
+        }
+
+        .iti--allow-dropdown .iti__flag-container:hover .iti__selected-flag {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .iti__selected-flag {
+            padding: 0 10px 0 12px !important;
+            border-radius: 12px 0 0 12px;
+        }
+
+        .iti__country-list {
+            background: #1a1f1f;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            color: #e9edef;
+        }
+
+        .iti__country.iti__highlight {
+            background: rgba(37, 211, 102, 0.1);
+        }
+
+        .iti__divider {
+            border-bottom-color: rgba(255, 255, 255, 0.06);
+        }
+
+        /* ── Error Messages ── */
+        .field-errors {
+            display: none;
+            font-size: 12px;
+            color: #f15c6d;
+            margin-top: 2px;
+            padding-left: 4px;
+        }
+
+        .field-errors.show {
+            display: block;
+        }
+
+        .field-errors p {
+            margin: 2px 0;
+        }
+
+        /* ── Submit Button ── */
+        .signup-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #128c7e, #0d6b5e);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+            margin-top: 4px;
+            letter-spacing: 0.3px;
+        }
+
+        .signup-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #25d366, #128c7e);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .signup-btn:hover::before {
+            opacity: 1;
+        }
+
+        .signup-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(18, 140, 126, 0.35);
+        }
+
+        .signup-btn:active {
+            transform: translateY(0);
+        }
+
+        .signup-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .signup-btn span {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        /* ── Spinner ── */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2.5px solid rgba(255, 255, 255, 0.15);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ── Footer Links ── */
+        .form-footer {
+            text-align: center;
+            margin-top: 6px;
+            font-size: 14px;
+            color: #8696a0;
+        }
+
+        .form-footer a {
+            color: #25d366;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+
+        .form-footer a:hover {
+            color: #128c7e;
+            text-decoration: underline;
+        }
+
+        /* ── Toast Notification ── */
+        .toast-msg {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #1a1f1f;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 14px 24px;
+            color: #e9edef;
+            font-size: 14px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            max-width: 90vw;
+        }
+
+        .toast-msg.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            pointer-events: auto;
+        }
+
+        .toast-msg i {
+            font-size: 18px;
+        }
+        .toast-msg.success i { color: #25d366; }
+        .toast-msg.error i { color: #f15c6d; }
+
+        /* ── Responsive ── */
+        @media (max-width: 480px) {
+            .signup-container {
+                padding: 28px 20px 34px;
+                border-radius: 18px;
+            }
+            .signup-header h1 {
+                font-size: 22px;
+            }
+            .signup-header .logo-icon {
+                width: 54px;
+                height: 54px;
+                font-size: 24px;
+            }
+            .profile-pic-upload {
+                padding: 8px 12px;
+            }
+            .profile-pic-upload .upload-avatar {
+                width: 44px;
+                height: 44px;
+                font-size: 18px;
+            }
+            .form-group input {
+                font-size: 14px;
+                padding: 10px 14px;
+            }
+            .toast-msg {
+                bottom: 20px;
+                padding: 12px 18px;
+                font-size: 13px;
+                width: calc(100% - 40px);
+            }
+        }
+
+        @media (max-width: 380px) {
+            .signup-container {
+                padding: 20px 14px 26px;
+            }
+            .signup-header .logo-icon {
+                width: 46px;
+                height: 46px;
+                font-size: 20px;
+            }
+            .signup-header h1 {
+                font-size: 19px;
+            }
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a3942;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3a4a52;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ════════════════════════════════════════════
+         MAIN CARD
+         ════════════════════════════════════════════ -->
+    <div class="signup-container">
+
+        <!-- Header -->
+        <div class="signup-header">
+            <div class="logo-icon">
+                <i class="fas fa-comment-dots"></i>
+            </div>
+            <h1>Join Asterix</h1>
+            <p>Zambia's community chat platform</p>
+        </div>
+
+        <!-- Form -->
+        <form id="signup-form" method="post" enctype="multipart/form-data" novalidate>
+            {% csrf_token %}
+
+            <!-- Username -->
+            <div class="form-group">
+                <label for="id_username">
+                    <i class="fas fa-user"></i> Username
+                </label>
+                <input type="text" id="id_username" name="username"
+                       placeholder="Choose a unique username"
+                       value="{{ form.username.value|default:'' }}"
+                       required
+                       autocomplete="username"
+                       minlength="3"
+                       maxlength="150">
+                <div class="field-errors" id="username-errors">
+                    {% if form.username.errors %}
+                        {% for error in form.username.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Phone Number -->
+            <div class="form-group">
+                <label for="phone_number">
+                    <i class="fas fa-phone"></i> Phone Number
+                </label>
+                <input type="tel" id="phone_number" name="phone_number"
+                       class="form-control"
+                       placeholder="+260 97 1234567"
+                       required
+                       autocomplete="tel">
+                <div class="field-errors" id="phone-errors">
+                    {% if form.phone_number.errors %}
+                        {% for error in form.phone_number.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Password -->
+            <div class="form-group">
+                <label for="id_password1">
+                    <i class="fas fa-lock"></i> Password
+                </label>
+                <input type="password" id="id_password1" name="password1"
+                       placeholder="Create a strong password"
+                       required
+                       autocomplete="new-password"
+                       minlength="8">
+                <div class="password-strength" id="password-strength">
+                    <div class="strength-bar">
+                        <div class="fill" id="strength-fill"></div>
+                    </div>
+                    <span class="strength-text" id="strength-text">Weak</span>
+                </div>
+                <div class="field-errors" id="password1-errors">
+                    {% if form.password1.errors %}
+                        {% for error in form.password1.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Confirm Password -->
+            <div class="form-group">
+                <label for="id_password2">
+                    <i class="fas fa-check-circle"></i> Confirm Password
+                </label>
+                <input type="password" id="id_password2" name="password2"
+                       placeholder="Confirm your password"
+                       required
+                       autocomplete="new-password">
+                <div class="field-errors" id="password2-errors">
+                    {% if form.password2.errors %}
+                        {% for error in form.password2.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Profile Picture -->
+            <div class="form-group">
+                <label>
+                    <i class="fas fa-camera"></i> Profile Picture
+                </label>
+                <div class="profile-pic-upload" id="profile-pic-upload">
+                    <div class="upload-avatar" id="upload-avatar-preview">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="upload-info">
+                        <div class="label">Choose a photo</div>
+                        <div class="hint">JPG, PNG, or WEBP • Max 5MB</div>
+                    </div>
+                    <i class="fas fa-arrow-up upload-icon"></i>
+                </div>
+                {{ form.profile_picture }}
+                <div class="field-errors" id="profile-errors">
+                    {% if form.profile_picture.errors %}
+                        {% for error in form.profile_picture.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Submit -->
+            <button type="submit" class="signup-btn" id="signup-btn">
+                <span>
+                    <i class="fas fa-user-plus"></i>
+                    Create Account
+                </span>
+            </button>
+
+            <!-- Footer -->
+            <div class="form-footer">
+                Already have an account? <a href="{% url 'login-user' %}">Log in</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TOAST
+         ════════════════════════════════════════════ -->
+    <div class="toast-msg" id="toast-msg">
+        <i class="fas fa-check-circle"></i>
+        <span id="toast-text">Success!</span>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         SCRIPTS
+         ════════════════════════════════════════════ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js">
+    </script>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ── DOM refs ────────────────────────────────────────────────
+            const form = document.getElementById('signup-form');
+            const usernameInput = document.getElementById('id_username');
+            const phoneInput = document.getElementById('phone_number');
+            const password1Input = document.getElementById('id_password1');
+            const password2Input = document.getElementById('id_password2');
+            const profileInput = document.getElementById('id_profile_picture');
+            const uploadZone = document.getElementById('profile-pic-upload');
+            const avatarPreview = document.getElementById('upload-avatar-preview');
+            const submitBtn = document.getElementById('signup-btn');
+            const toast = document.getElementById('toast-msg');
+            const toastText = document.getElementById('toast-text');
+
+            // ── Init intl-tel-input ─────────────────────────────────────
+            const iti = window.intlTelInput(phoneInput, {
+                initialCountry: 'zm',
+                separateDialCode: true,
+                preferredCountries: ['zm', 'us', 'gb', 'ke', 'ng', 'za'],
+                geoIpLookup: function(callback) {
+                    fetch('https://ipinfo.io/json?token=043bff0c9dc0e8')
+                        .then(res => res.json())
+                        .then(data => callback(data.country?.toLowerCase() || 'zm'))
+                        .catch(() => callback('zm'));
+                },
+                utilsScript: 'https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js'
+            });
+
+            // ── Password strength ────────────────────────────────────────
+            const strengthEl = document.getElementById('password-strength');
+            const strengthFill = document.getElementById('strength-fill');
+            const strengthText = document.getElementById('strength-text');
+
+            function evaluatePassword(pw) {
+                if (!pw) return { score: 0, label: 'Enter a password' };
+                let score = 0;
+                if (pw.length >= 8) score++;
+                if (pw.length >= 12) score++;
+                if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+                if (/\d/.test(pw)) score++;
+                if (/[^a-zA-Z0-9]/.test(pw)) score++;
+                const labels = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong'];
+                const colors = ['#f15c6d', '#f15c6d', '#f0a030', '#25d366', '#25d366'];
+                const pct = Math.min(score / 5 * 100, 100);
+                return { score, label: labels[Math.min(score, 4)], color: colors[Math.min(score, 4)], pct };
+            }
+
+            password1Input.addEventListener('input', function() {
+                const result = evaluatePassword(this.value);
+                strengthEl.classList.toggle('show', this.value.length > 0);
+                strengthFill.style.width = result.pct + '%';
+                strengthFill.style.background = result.color;
+                strengthText.textContent = result.label;
+                strengthText.style.color = result.color;
+            });
+
+            // ── Profile picture preview ──────────────────────────────────
+            profileInput.addEventListener('change', function() {
+                const file = this.files[0];
+                if (!file) {
+                    avatarPreview.innerHTML = '<i class="fas fa-user"></i>';
+                    return;
+                }
+                if (file.size > 5 * 1024 * 1024) {
+                    showToast('File too large. Maximum 5MB.', 'error');
+                    this.value = '';
+                    avatarPreview.innerHTML = '<i class="fas fa-user"></i>';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    avatarPreview.innerHTML =
+                        `<img src="${e.target.result}" alt="Profile preview">`;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            uploadZone.addEventListener('click', function(e) {
+                if (e.target.closest('.upload-avatar')) return;
+                profileInput.click();
+            });
+
+            // ── Real-time field validation ──────────────────────────────
+            function validateField(input, errorsId) {
+                const errors = document.getElementById(errorsId);
+                if (!errors) return;
+                errors.classList.remove('show');
+                input.classList.remove('error');
+
+                if (input.value.trim().length === 0 && input.hasAttribute('required')) {
+                    // Don't show errors on empty fields until form submission
+                    return true;
+                }
+                return true;
+            }
+
+            usernameInput.addEventListener('blur', function() {
+                if (this.value.trim().length < 3) {
+                    showFieldError('username-errors', 'Username must be at least 3 characters.');
+                } else {
+                    hideFieldError('username-errors');
+                }
+            });
+
+            // ── Toast helper ─────────────────────────────────────────────
+            let toastTimer;
+
+            function showToast(message, type) {
+                toast.className = 'toast-msg show ' + (type || 'success');
+                toastText.textContent = message;
+                const icon = toast.querySelector('i');
+                icon.className = type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-check-circle';
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 5000);
+            }
+
+            // ── Show/hide field errors ──────────────────────────────────
+            function showFieldError(id, message) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.innerHTML = '<p>' + message + '</p>';
+                el.classList.add('show');
+                const input = el.closest('.form-group')?.querySelector('input, select');
+                if (input) input.classList.add('error');
+            }
+
+            function hideFieldError(id) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.remove('show');
+                const input = el.closest('.form-group')?.querySelector('input, select');
+                if (input) input.classList.remove('error');
+            }
+
+            // ── Form submission ──────────────────────────────────────────
+            form.addEventListener('submit', function(event) {
+                // Validate all fields
+                let isValid = true;
+
+                // Username
+                const uname = usernameInput.value.trim();
+                if (uname.length < 3) {
+                    showFieldError('username-errors', 'Username must be at least 3 characters.');
+                    isValid = false;
+                } else if (uname.length > 150) {
+                    showFieldError('username-errors', 'Username must be 150 characters or fewer.');
+                    isValid = false;
+                } else if (!/^[a-zA-Z0-9_ ]*$/.test(uname)) {
+                    showFieldError('username-errors',
+                        'Username can only contain letters, digits, spaces, and underscores.');
+                    isValid = false;
+                } else {
+                    hideFieldError('username-errors');
+                }
+
+                // Phone
+                if (!iti.isValidNumber()) {
+                    showFieldError('phone-errors', 'Please enter a valid phone number with country code.');
+                    isValid = false;
+                } else {
+                    hideFieldError('phone-errors');
+                    // Set the formatted number
+                    phoneInput.value = iti.getNumber();
+                }
+
+                // Password
+                const pw = password1Input.value;
+                if (pw.length < 8) {
+                    showFieldError('password1-errors', 'Password must be at least 8 characters.');
+                    isValid = false;
+                } else {
+                    hideFieldError('password1-errors');
+                }
+
+                // Confirm password
+                if (password2Input.value !== pw) {
+                    showFieldError('password2-errors', 'Passwords do not match.');
+                    isValid = false;
+                } else {
+                    hideFieldError('password2-errors');
+                }
+
+                if (!isValid) {
+                    event.preventDefault();
+                    showToast('Please fix the errors above.', 'error');
+                    return;
+                }
+
+                // Show loading state
+                submitBtn.disabled = true;
+                submitBtn.querySelector('span').innerHTML =
+                    '<span class="spinner"></span> Creating account...';
+
+                // Form will submit normally after this
+            });
+
+            // ── Show Django form errors on load ──────────────────────────
+            document.addEventListener('DOMContentLoaded', function() {
+                // Show any errors from the server
+                const errorContainers = document.querySelectorAll('.field-errors');
+                errorContainers.forEach(el => {
+                    if (el.innerHTML.trim() && el.innerHTML.trim() !== '') {
+                        el.classList.add('show');
+                        const input = el.closest('.form-group')?.querySelector('input, select');
+                        if (input) input.classList.add('error');
+                    }
+                });
+
+                // If there are errors, scroll to them
+                const firstError = document.querySelector('.field-errors.show');
+                if (firstError) {
+                    firstError.closest('.form-group')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+
+            // ── Auto-fix phone format on submit ─────────────────────────
+            // The intl-tel-input already handles this, but ensure we set the value
+
+            // ── Prevent double submit ────────────────────────────────────
+            let submitting = false;
+            form.addEventListener('submit', function() {
+                if (submitting) {
+                    event.preventDefault();
+                    return;
+                }
+                submitting = true;
+                setTimeout(() => { submitting = false; }, 3000);
+            });
+
+        })();
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,17 @@
+<div id="forward-modal" class="modal-overlay" onclick="if(event.target===this)window.Asterix.messages._fwdResolve(null)">
+  <div class="modal-card" style="width:360px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <i class="fas fa-share"></i>
+      <h3>Forward Message</h3>
+      <button class="modal-close" onclick="window.Asterix.messages._fwdResolve(null)">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--sub);margin-bottom:12px;">Select a contact to forward this message to:</p>
+      <div class="fwd-contacts" id="fwd-contacts-list"></div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="window.Asterix.messages._fwdResolve(null)">Cancel</button>
+        <button class="modal-btn primary" id="fwd-send-btn" onclick="window.Asterix.messages._fwdConfirm()" disabled>Forward</button>
+      </div>
+    </div>
+  </div>
+</div>

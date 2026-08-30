@@ -1,0 +1,12 @@
+<div id="alert-modal" class="modal-overlay" onclick="if(event.target===this)window.Asterix.ui._alertResolve()">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-body" style="padding:26px 24px 20px;">
+      <div class="confirm-icon" id="alert-icon">ℹ️</div>
+      <div class="confirm-title" id="alert-title">Notice</div>
+      <div class="confirm-body" id="alert-body"></div>
+      <div class="modal-actions" style="margin-top:20px;">
+        <button class="modal-btn primary" onclick="window.Asterix.ui._alertResolve()">OK</button>
+      </div>
+    </div>
+  </div>
+</div>

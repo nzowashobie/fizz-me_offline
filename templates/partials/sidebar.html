@@ -1,0 +1,273 @@
+<!-- ============================================================
+     sidebar.html — Left sidebar with status hub, search,
+     conversation list, and My Status panel
+     ============================================================ -->
+
+<div id="sidebar">
+
+  <!-- ── Sidebar Header ──────────────────────────────────────────────── -->
+  <div class="sidebar-header">
+    <img src="{{ request.user.profile.profile_picture_url }}" alt="me" id="my-avatar"
+         onerror="this.onerror=null;this.src='/static/images/default_profile_picture.webp';">
+    <!-- LABEL CHANGE: Asterix → fizzme (display only) -->
+    <span class="app-name">Fizz-me</span>
+    <button class="hdr-icon" id="gear-sidebar-btn" title="Settings" aria-label="Settings">
+      <i class="fas fa-ellipsis-v"></i>
+    </button>
+  </div>
+
+  <!-- ── Status Hub ──────────────────────────────────────────────────── -->
+  <div class="status-hub" id="status-hub">
+
+    <!-- My Status (post personal status) -->
+    <div class="status-cat" id="open-my-status-btn" title="My Status">
+      <div class="status-ring own"><i class="fas fa-plus"></i></div>
+      <span>My Status</span>
+    </div>
+
+    <!-- General -->
+    <div class="status-cat" data-category="General" title="General statuses">
+      <div class="status-ring unread" id="ring-General">
+        <i class="fas fa-globe"></i>
+        <span class="badge" id="badge-General"></span>
+      </div>
+      <span>General</span>
+    </div>
+
+    <!-- Funerals: data-category, id, badge all unchanged (DB values).
+         Only the visible <span> label changes → Tributes -->
+    <div class="status-cat" data-category="Funerals" title="Tributes">
+      <div class="status-ring" id="ring-Funerals">
+        <i class="fas fa-dove"></i>
+        <span class="badge" id="badge-Funerals"></span>
+      </div>
+      <span>Tributes</span>
+    </div>
+
+    <!-- Weddings: data-category, id, badge all unchanged (DB values).
+         Only the visible <span> label changes → Celebrations -->
+    <div class="status-cat" data-category="Weddings" title="Celebrations">
+      <div class="status-ring" id="ring-Weddings">
+        <i class="fas fa-ring"></i>
+        <span class="badge" id="badge-Weddings"></span>
+      </div>
+      <span>Celebrations</span>
+    </div>
+
+    <!-- MARKET — two actions in one hub slot:
+           • The ring  → view Market listings (status viewer)
+           • The + btn → open the Market Listing panel to post -->
+    <div class="status-cat market-hub-cat" data-category="Market" title="Browse market listings">
+      <div class="status-ring market-status-ring" id="ring-Market">
+        <i class="fas fa-store"></i>
+        <span class="badge" id="badge-Market"></span>
+      </div>
+      <span>Market</span>
+    </div>
+
+    <!-- Church: data-category, id, badge all unchanged (DB values).
+         Only the visible <span> label changes → Spiritual -->
+    <div class="status-cat" data-category="Church" title="Spiritual">
+      <div class="status-ring" id="ring-Church">
+        <i class="fas fa-church"></i>
+        <span class="badge" id="badge-Church"></span>
+      </div>
+      <span>Spiritual</span>
+    </div>
+
+  </div><!-- /#status-hub -->
+
+  <!-- ── Contact Search ──────────────────────────────────────────────── -->
+  <div class="contact-search-wrap">
+    <input type="text" id="contact-search" placeholder="🔍  Search or start new chat">
+  </div>
+
+  <!-- ── Conversation List ───────────────────────────────────────────── -->
+  <div class="conversation-list" id="conversation-list">
+    {% for user in users %}
+      <div class="conversation-item" data-recipient="{{ user.username }}">
+        <div class="conv-avatar-wrapper">
+          <div class="conv-avatar-init"
+               style="background:{% cycle '#e53935' '#8e24aa' '#1e88e5' '#00897b' '#f4511e' '#6d4c41' '#546e7a' '#43a047' %};">
+            {{ user.username|first|upper }}
+          </div>
+          <img class="conv-avatar"
+               src="{{ user.profile.profile_picture_url }}"
+               alt="{{ user.username }}"
+               onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"
+               onerror="this.style.display='none'; this.previousElementSibling.style.display='flex';">
+        </div>
+        <div class="conv-body">
+          <div class="conv-name">{{ user.username }}</div>
+          <div class="conv-preview" id="preview-{{ user.username }}">Tap to open chat</div>
+        </div>
+        <span class="online-dot" id="online-{{ user.username }}" style="display:none;"></span>
+        <span class="unread-badge" id="unread-{{ user.username }}"></span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- ============================================================
+       MY STATUS SLIDE-UP PANEL
+       ============================================================ -->
+  <div id="my-status-overlay"></div>
+  <div id="my-status-panel">
+    <div class="msp-header">
+      <h3><i class="fas fa-circle-dot" style="margin-right:7px;"></i>My Status</h3>
+      <button id="close-my-status" aria-label="Close my status panel">&times;</button>
+    </div>
+    <div class="msp-form">
+      <!-- Category -->
+      <label for="status-cat-sel">Category</label>
+      <select id="status-cat-sel">
+        <option value="General">🌐 General</option>
+        <!-- value="Funerals" MUST stay as-is — it's the DB/API value.
+             Only the display text changes → Tributes -->
+        <option value="Funerals">🕊️ Tributes</option>
+        <!-- value="Weddings" MUST stay as-is — it's the DB/API value.
+             Only the display text changes → Celebrations -->
+        <option value="Weddings">💍 Celebrations</option>
+        <option value="Market">🛒 Market</option>
+        <!-- value="Church" MUST stay as-is — it's the DB/API value.
+             Only the display text changes → Spiritual -->
+        <option value="Church">⛪ Spiritual</option>
+      </select>
+
+      <div class="market-link-wrap" id="market-link-wrap" style="position: relative;">
+        <label><i class="fas fa-link"></i> Shop / Product Link</label>
+        <input type="url" id="status-mkt-link" placeholder="https://yourshop.com/product">
+
+        <!-- Post-to-market shortcut button -->
+        <button class="market-post-btn"
+                id="market-post-btn"
+                title="Post a listing"
+                aria-label="Post a market listing"
+                onclick="event.stopPropagation(); openMarketPanel();">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+
+      <!-- Celebrations Event Hint (was: Wedding Event Hint)
+           id="wedding-event-hint" unchanged — JS references it by this id -->
+      <div id="wedding-event-hint"
+           style="display:none; background:rgba(233,30,99,.1); border:1px solid rgba(233,30,99,.25);
+                  border-radius:8px; padding:10px 14px; margin-top:8px; margin-bottom:12px;
+                  font-size:13px; color:#f48fb1; cursor:pointer; align-items:center;
+                  justify-content:space-between; transition:background .15s;">
+        <!-- LABEL CHANGE: "Planning a wedding?" → "Planning a celebration?" -->
+        <span><i class="fas fa-ring" style="margin-right:8px;"></i>
+          <strong>Planning a celebration?</strong> Create an event with guest list &amp; invite card.</span>
+        <span style="background:#e91e63; color:#fff; border-radius:20px;
+                     padding:2px 14px; font-size:12px; font-weight:700; white-space:nowrap;">
+          + Create</span>
+      </div>
+
+      <!-- Market listing shortcut inside My Status panel -->
+      <!-- id, onclick all unchanged — JS/event wiring depends on them -->
+      <div id="market-status-hint"
+           style="display:none; background:rgba(230,168,23,.08); border:1px solid rgba(230,168,23,.25);
+                  border-radius:8px; padding:10px 14px; margin-top:8px; margin-bottom:12px;
+                  font-size:13px; color:#e6a817; cursor:pointer; align-items:center;
+                  justify-content:space-between; transition:background .15s;"
+           onclick="window.Asterix && window.Asterix.status && window.Asterix.status.closeMyStatus();
+                    setTimeout(openMarketPanel, 300);">
+        <span><i class="fas fa-store" style="margin-right:8px;"></i>
+          <strong>Selling something?</strong> Use the dedicated listing form for price, availability &amp; more.</span>
+        <span style="background:#e6a817; color:#000; border-radius:20px;
+                     padding:2px 14px; font-size:12px; font-weight:700; white-space:nowrap;">
+          Post</span>
+      </div>
+
+      <label for="status-caption-input">Caption (optional)</label>
+      <textarea id="status-caption-input" placeholder="What are you sharing?"></textarea>
+
+      <label style="margin-bottom:4px;">Emoji (tap to add to caption)</label>
+      <div class="status-emoji-row" id="status-upload-emojis"></div>
+
+      <label>Photo or Video</label>
+      <div class="file-drop-zone" id="status-drop-zone">
+        <i class="fas fa-cloud-upload-alt"></i>
+        <span>Tap to choose or drag a file here</span>
+      </div>
+      <input type="file" id="status-file-input" accept="image/*,video/*" style="display:none;">
+      <img  class="status-preview" id="status-prev-img" alt="">
+      <video class="status-preview" id="status-prev-vid" muted playsinline></video>
+
+      <button id="upload-status-btn" disabled>
+        <i class="fas fa-paper-plane"></i>&nbsp; Publish Status
+      </button>
+      <p class="upload-msg" id="upload-msg"></p>
+    </div>
+
+    <div class="my-statuses-list" id="my-statuses-list">
+      <h4>Your active statuses</h4>
+      <p id="my-statuses-empty" style="font-size:13px;color:var(--sub);">Loading…</p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       STATUS VIEWS SUB-PANEL
+       ============================================================ -->
+  <div id="status-views-panel">
+    <div class="vp-header">
+      <h3><i class="fas fa-eye" style="margin-right:7px;"></i>Viewed By</h3>
+      <button id="close-views-panel"
+              style="background:none; border:none; color:var(--sub); font-size:22px; cursor:pointer;">
+        &times;
+      </button>
+    </div>
+    <div class="vp-list" id="vp-list-container"></div>
+  </div>
+
+</div><!-- /#sidebar -->
+
+
+<!-- ──────────────────────────────────────────────────────────────────
+     MARKET HUB BUTTON STYLES
+────────────────────────────────────────────────────────────────────── -->
+<style>
+#market-link-wrap {
+  position: relative;
+}
+
+.market-post-btn {
+  position: absolute;
+  top: 30px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e6a817;
+  border: 2px solid #1a1f1f;
+  color: #000;
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  padding: 0;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(230, 168, 23, .45);
+  transition: transform .18s, box-shadow .18s;
+  -webkit-tap-highlight-color: transparent;
+}
+.market-post-btn:hover {
+  transform: scale(1.18);
+  box-shadow: 0 3px 10px rgba(230, 168, 23, .6);
+}
+.market-post-btn:active { transform: scale(.92); }
+
+.market-hub-cat .market-status-ring {
+  border-color: #e6a817;
+}
+.market-hub-cat .market-status-ring.unread {
+  border-color: #e6a817;
+  box-shadow: 0 0 0 3px rgba(230, 168, 23, .15);
+}
+
+#market-status-hint {
+  display: none;
+}
+</style>

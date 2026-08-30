@@ -1,0 +1,135 @@
+<div id="settings-modal-overlay" onclick="if(event.target===this)window.Asterix.settings.close()">
+  <div id="settings-modal" onclick="event.stopPropagation()">
+    <div class="settings-header">
+      <i class="fas fa-cog"></i>
+      <h2>Settings</h2>
+      <button class="settings-close" onclick="window.Asterix.settings.close()"><i class="fas fa-times"></i></button>
+    </div>
+
+    <!-- ── CHAT BACKGROUND ──────────────────────────────────────── -->
+    <div class="settings-section">
+      <div class="settings-section-title"><i class="fas fa-image"></i> Chat Background</div>
+      <div class="settings-row" onclick="window.Asterix.settings.toggleBgPanel()">
+        <div class="sr-icon teal"><i class="fas fa-palette"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Change Background</div>
+          <div class="settings-row-sub" id="current-bg-label">Default pattern</div>
+        </div>
+        <i class="fas fa-chevron-down sr-arrow" id="bg-chevron"></i>
+      </div>
+
+      <!-- ── Background theme panel (hidden initially) ──────────── -->
+      <div id="bg-theme-panel">
+        <div class="bg-theme-grid" id="bg-theme-grid"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <div class="bg-thumb-custom" id="bg-custom-btn" style="flex:1;" onclick="document.getElementById('bg-custom-input').click()">
+            <i class="fas fa-upload"></i>
+            <span>Custom Image</span>
+          </div>
+        </div>
+        <input type="file" id="bg-custom-input" accept="image/*" style="display:none;">
+      </div>
+    </div>
+
+    <div class="settings-divider"></div>
+
+    <!-- ── NOTIFICATIONS ────────────────────────────────────────── -->
+    <div class="settings-section">
+      <div class="settings-section-title"><i class="fas fa-bell"></i> Notifications</div>
+      <div class="settings-row">
+        <div class="sr-icon purple"><i class="fas fa-bell"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Message Notifications</div>
+          <div class="settings-row-sub">Show alerts for new messages</div>
+        </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="tog-notifs" checked>
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="sr-icon orange"><i class="fas fa-volume-up"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Notification Sound</div>
+          <div class="settings-row-sub" id="ringtone-label">Default tone</div>
+        </div>
+        <button class="settings-close" style="background:var(--mid);color:var(--text);font-size:12px;width:auto;padding:4px 10px;border-radius:8px;" onclick="document.getElementById('ringtone-input').click()"><i class="fas fa-upload" style="margin-right:4px;"></i>Change</button>
+        <input type="file" id="ringtone-input" accept="audio/*" style="display:none;">
+      </div>
+      <div class="settings-row">
+        <div class="sr-icon blue"><i class="fas fa-mobile-alt"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Vibration</div>
+          <div class="settings-row-sub">Vibrate on new messages</div>
+        </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="tog-vibrate" checked>
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-divider"></div>
+
+    <!-- ── PRIVACY & SECURITY ──────────────────────────────────── -->
+    <div class="settings-section">
+      <div class="settings-section-title"><i class="fas fa-lock"></i> Privacy & Security</div>
+      <div class="settings-row">
+        <div class="sr-icon teal"><i class="fas fa-eye"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Read Receipts</div>
+          <div class="settings-row-sub">Let others see when you've read their messages</div>
+        </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="tog-read-receipts" checked>
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="sr-icon red"><i class="fas fa-user-secret"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Hide Online Status</div>
+          <div class="settings-row-sub">Don't show when you're active</div>
+        </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="tog-hide-online">
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-divider"></div>
+
+    <!-- ── APPEARANCE ────────────────────────────────────────────── -->
+    <div class="settings-section" style="padding-bottom:20px;">
+      <div class="settings-section-title"><i class="fas fa-magic"></i> Appearance</div>
+      <div class="settings-row">
+        <div class="sr-icon orange"><i class="fas fa-text-height"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Font Size</div>
+          <div class="settings-row-sub" id="font-size-label">Medium (14px)</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button onclick="window.Asterix.settings.changeFontSize(-1)" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--mid);color:var(--text);cursor:pointer;font-size:14px;">−</button>
+          <button onclick="window.Asterix.settings.changeFontSize(1)" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--mid);color:var(--text);cursor:pointer;font-size:14px;">+</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="sr-icon blue"><i class="fas fa-compress-arrows-alt"></i></div>
+        <div class="settings-row-info">
+          <div class="settings-row-label">Compact Messages</div>
+          <div class="settings-row-sub">Reduce spacing between messages</div>
+        </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="tog-compact">
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+    </div>
+  </div>
+</div>

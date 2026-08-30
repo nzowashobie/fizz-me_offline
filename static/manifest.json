@@ -1,0 +1,21 @@
+{
+  "name": "Fizz-me",
+  "short_name": "Fizz-me",
+  "description": "Fizz-me for Chats",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#128c7e",
+  "theme_color": "#128c7e",
+  "icons": [
+    {
+      "src": "/static/images/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/images/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

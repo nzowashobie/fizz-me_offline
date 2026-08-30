@@ -1,0 +1,24 @@
+# Generate your own VAPID keypair (do this once, on your own machine/PythonAnywhere console)
+
+pip install pywebpush --break-system-packages
+
+python3 -c "
+from py_vapid import Vapid02
+import base64
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+v = Vapid02()
+v.generate_keys()
+
+with open('vapid_private.pem', 'w') as f:
+    f.write(v.private_pem().decode())
+
+raw_pub = v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+print('VAPID_PUBLIC_KEY =', base64.urlsafe_b64encode(raw_pub).decode().rstrip('='))
+print('Private key saved to vapid_private.pem — keep this OUT of git, load it from an env var.')
+"
+
+# Then in settings.py:
+#   VAPID_PRIVATE_KEY_PATH = os.environ.get('VAPID_PRIVATE_KEY_PATH', BASE_DIR / 'vapid_private.pem')
+#   VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '<the printed value>')
+#   VAPID_CLAIM_EMAIL = 'mailto:you@yourdomain.com'   # required by the push spec

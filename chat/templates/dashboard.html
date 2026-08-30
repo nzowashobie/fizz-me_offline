@@ -1,0 +1,54 @@
+<!-- templates/admin/dashboard.html -->
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <h1>Chat Application Dashboard</h1>
+
+  <!-- Statistics Section -->
+  <div style="margin-bottom: 20px;">
+    <h2>Statistics</h2>
+    <p>Total Messages: {{ total_messages }}</p>
+    <p>Unread Messages: {{ unread_messages }}</p>
+  </div>
+
+  <!-- Recent Messages Section -->
+  <div style="margin-bottom: 20px;">
+    <h2>Recent Messages</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Sender</th>
+          <th>Recipient</th>
+          <th>Message</th>
+          <th>Timestamp</th>
+          <th>Is Read</th>
+          <th>Attachments</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for message in recent_messages %}
+          <tr>
+            <td>{{ message.sender }}</td>
+            <td>{{ message.recipient }}</td>
+            <td>{{ message.message }}</td>
+            <td>{{ message.timestamp }}</td>
+            <td>{{ message.is_read|yesno:"Yes,No" }}</td>
+            <td>
+              {% for attachment in message.attachments.all %}
+                <a href="{{ attachment.file.url }}" target="_blank">{{ attachment.file.name }}</a><br>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- User Management Section -->
+  <div>
+    <h2>User Management</h2>
+    <p>
+      <a href="{% url 'custom_admin:auth_user_changelist' %}" class="button">Manage Users</a>
+    </p>
+  </div>
+{% endblock %}

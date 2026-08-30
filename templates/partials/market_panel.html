@@ -1,0 +1,456 @@
+{% comment %}
+market_panel.html — Asterix / fizzme
+Include with: {% include "partials/market_panel.html" %}
+{% endcomment %}
+
+{% load static %}
+
+<div id="market-panel-overlay"></div>
+
+<div id="market-panel" role="dialog" aria-modal="true" aria-labelledby="market-panel-title">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <div class="mp-header">
+    <div class="mp-header-left">
+      <span class="mp-header-icon">🛒</span>
+      <div>
+        <h2 id="market-panel-title">Post a Listing</h2>
+        <p class="mp-header-sub">Sell on fizzme Market · visible for 24 hrs</p>
+      </div>
+    </div>
+    <button id="close-market-panel" aria-label="Close market panel">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+
+  <!-- ── Step pills ──────────────────────────────────────────────── -->
+  <div class="mp-steps">
+    <div class="mp-step active" data-step="1">
+      <span class="mp-step-num">1</span>
+      <span class="mp-step-label">Photo</span>
+    </div>
+    <div class="mp-step-connector"></div>
+    <div class="mp-step" data-step="2">
+      <span class="mp-step-num">2</span>
+      <span class="mp-step-label">Details</span>
+    </div>
+    <div class="mp-step-connector"></div>
+    <div class="mp-step" data-step="3">
+      <span class="mp-step-num">3</span>
+      <span class="mp-step-label">Review</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       STEP 1 — Photo upload
+  ════════════════════════════════════════════════ -->
+  <div class="mp-page" id="mp-page-1">
+
+    <div id="mp-drop-zone" class="mp-drop-zone" role="button" tabindex="0"
+         aria-label="Upload product photos or videos">
+      <div id="mp-drop-placeholder">
+        <i class="fas fa-camera-retro"></i>
+        <strong>Tap to add photos or a video</strong>
+        <span>JPG · PNG · MP4 · max 20 MB each · up to 10 photos</span>
+      </div>
+
+      <img id="mp-preview-img" src="" alt="Product preview" style="display:none;">
+      <video id="mp-preview-vid" playsinline muted style="display:none;"></video>
+      <div id="mp-multi-grid" class="mp-multi-grid" style="display:none;"></div>
+
+      <button id="mp-remove-media" class="mp-remove-media" style="display:none;"
+              aria-label="Remove all photos">
+        <i class="fas fa-trash-alt"></i>
+      </button>
+
+      <!-- Add-more button: visible after first photo, lets mobile users accumulate picks -->
+      <button id="mp-add-more" class="mp-add-more-btn" style="display:none;"
+              aria-label="Add more photos">
+        <i class="fas fa-plus"></i>
+      </button>
+
+      <span id="mp-media-count-badge" class="mp-media-count-badge" style="display:none;"></span>
+    </div>
+
+    <!-- FIX: multiple attribute allows selecting several files at once on desktop -->
+    <input type="file" id="mp-file-input" accept="image/*,video/*" multiple style="display:none;">
+
+    <p class="mp-hint"><i class="fas fa-lightbulb"></i>
+      Good lighting and a plain background get you more replies. Add several angles — buyers trust listings with more than one photo.
+      <strong>On mobile: tap the zone for photo 1, then tap <i class="fas fa-plus"></i> to add more.</strong>
+    </p>
+
+    <div class="mp-field-label">What are you selling?</div>
+    <div class="mp-cat-chips" id="mp-cat-chips" role="group" aria-label="Product category">
+      <button class="mp-chip active" data-cat="clothing">👗 Clothing</button>
+      <button class="mp-chip" data-cat="shoes">👟 Shoes</button>
+      <button class="mp-chip" data-cat="cosmetics">💄 Cosmetics</button>
+      <button class="mp-chip" data-cat="bags">👜 Bags</button>
+      <button class="mp-chip" data-cat="household">🏠 Household</button>
+      <button class="mp-chip" data-cat="other">📦 Other</button>
+    </div>
+
+    <button class="mp-next-btn" id="mp-next-1">
+      Next — Add details <i class="fas fa-arrow-right"></i>
+    </button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       STEP 2 — Listing details
+  ════════════════════════════════════════════════ -->
+  <div class="mp-page" id="mp-page-2" style="display:none;">
+
+    <div class="mp-field">
+      <label class="mp-field-label" for="mp-caption">
+        Description <span class="mp-required">*</span>
+      </label>
+      <textarea id="mp-caption" class="mp-textarea" rows="3" maxlength="255"
+                placeholder="e.g. Ladies flare jeans, size 10, worn twice, very good condition…"></textarea>
+      <div class="mp-char-count"><span id="mp-caption-count">0</span>/255</div>
+    </div>
+
+    <div class="mp-field-row">
+      <div class="mp-field mp-field-flex">
+        <label class="mp-field-label" for="mp-price">
+          Price (ZMW) <span class="mp-required">*</span>
+        </label>
+        <div class="mp-price-wrap">
+          <span class="mp-price-prefix">K</span>
+          <input id="mp-price" type="number" class="mp-input mp-price-input"
+                 placeholder="0.00" min="0" step="0.01">
+        </div>
+      </div>
+      <div class="mp-field mp-field-flex">
+        <label class="mp-field-label">Availability</label>
+        <select id="mp-availability" class="mp-select">
+          <option value="available">✅ Available</option>
+          <option value="reserved">🟡 Reserved</option>
+          <option value="sold">❌ Sold</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mp-toggle-row">
+      <div class="mp-toggle-info">
+        <span class="mp-toggle-label">Price is negotiable</span>
+        <span class="mp-toggle-sub">Buyers can send you an offer</span>
+      </div>
+      <label class="mp-toggle" aria-label="Price is negotiable">
+        <input type="checkbox" id="mp-negotiable">
+        <span class="mp-tog-track"><span class="mp-tog-thumb"></span></span>
+      </label>
+    </div>
+
+    <div class="mp-field">
+      <label class="mp-field-label" for="mp-custom-tag">
+        Custom tag <span class="mp-optional">(optional)</span>
+      </label>
+      <input id="mp-custom-tag" type="text" class="mp-input"
+             placeholder="e.g. Brand new · Size M · Unisex" maxlength="50">
+    </div>
+
+    <div class="mp-field">
+      <label class="mp-field-label" for="mp-collection">
+        Collection / delivery point <span class="mp-optional">(optional)</span>
+      </label>
+      <input id="mp-collection" type="text" class="mp-input"
+             placeholder="e.g. Chisokone Market, Kitwe · Can deliver Ndola" maxlength="255">
+    </div>
+
+    <div class="mp-field">
+      <label class="mp-field-label" for="mp-market-link">
+        External shop link <span class="mp-optional">(optional)</span>
+      </label>
+      <input id="mp-market-link" type="url" class="mp-input" placeholder="https://…">
+    </div>
+
+    <div class="mp-btn-row">
+      <button class="mp-back-btn" id="mp-back-2">
+        <i class="fas fa-arrow-left"></i> Back
+      </button>
+      <button class="mp-next-btn mp-next-flex" id="mp-next-2">
+        Review listing <i class="fas fa-arrow-right"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       STEP 3 — Review & post
+  ════════════════════════════════════════════════ -->
+  <div class="mp-page" id="mp-page-3" style="display:none;">
+
+    <div class="mp-preview-card">
+      <div class="mp-preview-media-wrap">
+        <img id="mp-review-img" src="" alt="" style="display:none;">
+        <video id="mp-review-vid" muted playsinline style="display:none;"></video>
+        <div id="mp-review-multi-grid" class="mp-multi-grid" style="display:none;"></div>
+        <div id="mp-review-no-media" class="mp-review-no-media">
+          <i class="fas fa-image"></i>
+          <span>No photo</span>
+        </div>
+      </div>
+      <div class="mp-preview-body">
+        <div class="mp-preview-badges">
+          <span class="mp-badge mp-badge-cat" id="mp-review-cat-badge">👗 Clothing</span>
+          <span class="mp-badge mp-badge-avail" id="mp-review-avail-badge">✅ Available</span>
+        </div>
+        <div class="mp-preview-price" id="mp-review-price">K—</div>
+        <div class="mp-preview-neg" id="mp-review-neg" style="display:none;">
+          <i class="fas fa-handshake"></i> Open to offers
+        </div>
+        <p class="mp-preview-caption" id="mp-review-caption">No description yet.</p>
+        <div class="mp-preview-meta">
+          <span id="mp-review-tag" style="display:none;">
+            <i class="fas fa-tag"></i> <span id="mp-review-tag-text"></span>
+          </span>
+          <span id="mp-review-collection" style="display:none;">
+            <i class="fas fa-map-marker-alt"></i> <span id="mp-review-collection-text"></span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mp-info-banner">
+      <i class="fas fa-clock"></i>
+      Your listing goes live immediately and expires after 24 hours. You can delete it early from "My Status".
+    </div>
+
+    <div id="mp-post-msg" class="mp-post-msg" style="display:none;"></div>
+
+    <div class="mp-btn-row">
+      <button class="mp-back-btn" id="mp-back-3">
+        <i class="fas fa-arrow-left"></i> Back
+      </button>
+      <button class="mp-post-btn" id="mp-post-btn">
+        <i class="fas fa-store"></i> Post to Market
+      </button>
+    </div>
+  </div>
+
+</div><!-- /#market-panel -->
+
+<style>
+/* ── Backdrop ───────────────────────────────────────────────────── */
+#market-panel-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .6);
+  z-index: 20500;
+  -webkit-tap-highlight-color: transparent;
+}
+#market-panel-overlay.open { display: block; }
+
+/* ── Panel shell ────────────────────────────────────────────────── */
+#market-panel {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: var(--sidebar-w, 340px);
+  max-height: 93dvh;
+  background: #141919;
+  border-top: 2px solid #e6a817;
+  border-radius: 20px 20px 0 0;
+  z-index: 20501;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, .75);
+  scrollbar-width: thin;
+  scrollbar-color: #2a3030 transparent;
+}
+#market-panel.open {
+  display: block;
+  animation: mpSlideUp .28s cubic-bezier(.32, 1.1, .6, 1);
+}
+@keyframes mpSlideUp {
+  from { transform: translateY(100%); opacity: .6; }
+  to   { transform: translateY(0);    opacity: 1;  }
+}
+#market-panel::-webkit-scrollbar { width: 3px; }
+#market-panel::-webkit-scrollbar-thumb { background: #2a3030; border-radius: 4px; }
+@media (max-width: 768px) { #market-panel { width: 100%; } }
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.mp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  position: sticky;
+  top: 0;
+  background: #141919;
+  z-index: 2;
+}
+.mp-header-left { display: flex; align-items: center; gap: 12px; }
+.mp-header-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+.mp-header h2 { font-size: 16px; font-weight: 700; color: #e6a817; margin: 0 0 2px; line-height: 1.2; }
+.mp-header-sub { font-size: 11px; color: var(--sub,#8696a0); margin: 0; }
+#close-market-panel {
+  background: rgba(255,255,255,.08); border: none; color: var(--sub,#8696a0);
+  width: 32px; height: 32px; border-radius: 50%; font-size: 15px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background .15s, color .15s;
+}
+#close-market-panel:hover { background: rgba(255,255,255,.18); color: #fff; }
+
+/* ── Step indicator ─────────────────────────────────────────────── */
+.mp-steps {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; padding: 14px 20px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.mp-step { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 52px; }
+.mp-step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.12);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--sub,#8696a0);
+  transition: background .2s, border-color .2s, color .2s;
+}
+.mp-step.active .mp-step-num { background: #e6a817; border-color: #e6a817; color: #000; }
+.mp-step.done .mp-step-num { background: var(--accent2,#25d366); border-color: var(--accent2,#25d366); color: #fff; }
+.mp-step.done .mp-step-num::before { content: '✓'; font-size: 13px; }
+.mp-step.done .mp-step-num > span { display: none; }
+.mp-step-label { font-size: 10px; color: var(--sub,#8696a0); font-weight: 600; letter-spacing: .3px; text-transform: uppercase; }
+.mp-step.active .mp-step-label { color: #e6a817; }
+.mp-step.done .mp-step-label   { color: var(--accent2,#25d366); }
+.mp-step-connector { flex: 1; height: 2px; background: rgba(255,255,255,.1); border-radius: 1px; margin: 0 6px 14px; min-width: 24px; }
+
+/* ── Pages ──────────────────────────────────────────────────────── */
+.mp-page { padding: 16px 20px calc(20px + env(safe-area-inset-bottom,0px)); }
+
+/* ── Drop zone ──────────────────────────────────────────────────── */
+.mp-drop-zone {
+  position: relative; width: 100%; aspect-ratio: 4/3;
+  background: rgba(255,255,255,.03); border: 2px dashed rgba(230,168,23,.35);
+  border-radius: 14px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; overflow: hidden; transition: border-color .2s, background .2s;
+  margin-bottom: 14px;
+}
+.mp-drop-zone:hover, .mp-drop-zone:focus-visible { border-color: #e6a817; background: rgba(230,168,23,.05); }
+.mp-drop-zone.has-media { border-style: solid; border-color: rgba(230,168,23,.5); }
+#mp-drop-placeholder {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; text-align: center; padding: 16px; pointer-events: none;
+}
+#mp-drop-placeholder i { font-size: 36px; color: #e6a817; opacity: .7; }
+#mp-drop-placeholder strong { display: block; font-size: 14px; color: var(--text,#e9edef); font-weight: 600; }
+#mp-drop-placeholder span { font-size: 11px; color: var(--sub,#8696a0); }
+#mp-preview-img, #mp-preview-vid { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mp-remove-media {
+  position: absolute; top: 8px; right: 8px;
+  background: rgba(0,0,0,.6); border: none; color: #fff;
+  width: 30px; height: 30px; border-radius: 50%; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; z-index: 3;
+  backdrop-filter: blur(4px); transition: background .15s;
+}
+.mp-remove-media:hover { background: rgba(241,92,109,.8); }
+
+/* ── Add-more button ─────────────────────────────────────────────── */
+.mp-add-more-btn {
+  position: absolute; bottom: 8px; right: 8px;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(230,168,23,.92);
+  border: 2px solid rgba(255,255,255,.25);
+  color: #000; font-size: 14px; cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  z-index: 4; box-shadow: 0 2px 10px rgba(0,0,0,.45);
+  transition: transform .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.mp-add-more-btn:hover  { background: #e6a817; transform: scale(1.1); }
+.mp-add-more-btn:active { transform: scale(.95); }
+
+/* ── Multi-photo grid ────────────────────────────────────────────── */
+.mp-multi-grid { position: absolute; inset: 0; display: grid; gap: 2px; background: #000; }
+.mp-multi-grid[data-count="2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.mp-multi-grid[data-count="3"] { grid-template-columns: 1.2fr 1fr; grid-template-rows: 1fr 1fr; }
+.mp-multi-grid[data-count="3"] .mp-grid-cell:first-child { grid-row: 1/3; }
+.mp-multi-grid[data-count="4"], .mp-multi-grid[data-count="more"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.mp-grid-cell { background-size: cover; background-position: center; position: relative; }
+.mp-grid-more { position: absolute; inset: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 22px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.mp-media-count-badge { position: absolute; top: 8px; left: 8px; z-index: 3; background: rgba(0,0,0,.65); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 12px; display: flex; align-items: center; gap: 5px; }
+
+/* ── Hint ───────────────────────────────────────────────────────── */
+.mp-hint { font-size: 12px; color: var(--sub,#8696a0); display: flex; gap: 6px; align-items: flex-start; margin-bottom: 16px; line-height: 1.5; }
+.mp-hint i { color: #e6a817; margin-top: 1px; flex-shrink: 0; }
+
+/* ── Fields ─────────────────────────────────────────────────────── */
+.mp-field-label { display: block; font-size: 10px; font-weight: 700; color: #e6a817; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+.mp-required { color: #f15c6d; }
+.mp-optional { color: var(--sub,#8696a0); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.mp-cat-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 20px; }
+.mp-chip { padding: 7px 13px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1.5px solid rgba(255,255,255,.1); background: rgba(255,255,255,.04); color: var(--sub,#8696a0); cursor: pointer; transition: all .18s; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+.mp-chip:hover  { border-color: #e6a817; color: #e6a817; }
+.mp-chip.active { border-color: #e6a817; background: rgba(230,168,23,.15); color: #e6a817; }
+.mp-field { margin-bottom: 16px; }
+.mp-field-row { display: flex; gap: 12px; margin-bottom: 0; }
+.mp-field-flex { flex: 1; margin-bottom: 16px; }
+.mp-input, .mp-textarea, .mp-select { width: 100%; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: var(--text,#e9edef); padding: 10px 13px; font-size: 13px; font-family: inherit; outline: none; transition: border-color .15s, background .15s; appearance: none; -webkit-appearance: none; }
+.mp-input:focus, .mp-textarea:focus, .mp-select:focus { border-color: #e6a817; background: rgba(230,168,23,.06); }
+.mp-input::placeholder, .mp-textarea::placeholder { color: var(--sub,#8696a0); }
+.mp-textarea { resize: none; line-height: 1.5; }
+.mp-char-count { text-align: right; font-size: 10px; color: var(--sub,#8696a0); margin-top: 4px; }
+.mp-price-wrap { position: relative; display: flex; align-items: center; }
+.mp-price-prefix { position: absolute; left: 12px; font-size: 14px; font-weight: 700; color: #e6a817; pointer-events: none; }
+.mp-price-input { padding-left: 26px !important; }
+.mp-select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%238696a0'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 14px; padding-right: 30px; cursor: pointer; }
+
+/* ── Toggle ─────────────────────────────────────────────────────── */
+.mp-toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-top: 1px solid rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.05); margin-bottom: 16px; }
+.mp-toggle-label { display: block; font-size: 13px; font-weight: 600; color: var(--text,#e9edef); }
+.mp-toggle-sub { display: block; font-size: 11px; color: var(--sub,#8696a0); margin-top: 2px; }
+.mp-toggle { position: relative; width: 44px; height: 25px; flex-shrink: 0; cursor: pointer; }
+.mp-toggle input { display: none; }
+.mp-tog-track { position: absolute; inset: 0; border-radius: 13px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.1); transition: background .2s; }
+.mp-toggle input:checked ~ .mp-tog-track { background: #e6a817; border-color: #e6a817; }
+.mp-tog-thumb { position: absolute; top: 3px; left: 3px; width: 17px; height: 17px; border-radius: 50%; background: #fff; transition: left .2s; pointer-events: none; }
+.mp-toggle input:checked ~ .mp-tog-track .mp-tog-thumb { left: 22px; }
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.mp-next-btn { width: 100%; padding: 13px; background: linear-gradient(135deg,#e6a817 0%,#c98a00 100%); color: #000; font-size: 14px; font-weight: 700; border: none; border-radius: 25px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity .15s, transform .12s; -webkit-tap-highlight-color: transparent; margin-top: 4px; }
+.mp-next-btn:hover  { opacity: .9; }
+.mp-next-btn:active { transform: scale(.97); }
+.mp-next-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.mp-next-flex { flex: 1; width: auto; margin-top: 0; }
+.mp-back-btn { padding: 13px 20px; background: rgba(255,255,255,.07); color: var(--text,#e9edef); font-size: 14px; font-weight: 600; border: 1px solid rgba(255,255,255,.1); border-radius: 25px; cursor: pointer; display: flex; align-items: center; gap: 7px; transition: background .15s; -webkit-tap-highlight-color: transparent; }
+.mp-back-btn:hover { background: rgba(255,255,255,.13); }
+.mp-btn-row { display: flex; gap: 10px; margin-top: 6px; }
+.mp-post-btn { flex: 1; padding: 13px; background: linear-gradient(135deg,#25d366 0%,#128c7e 100%); color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 25px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity .15s, transform .12s; -webkit-tap-highlight-color: transparent; box-shadow: 0 4px 18px rgba(37,211,102,.3); }
+.mp-post-btn:hover  { opacity: .92; }
+.mp-post-btn:active { transform: scale(.97); }
+.mp-post-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* ── Review card ────────────────────────────────────────────────── */
+.mp-preview-card { border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); margin-bottom: 16px; }
+.mp-preview-media-wrap { width: 100%; aspect-ratio: 4/3; background: rgba(255,255,255,.04); overflow: hidden; position: relative; }
+#mp-review-img, #mp-review-vid { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mp-review-no-media { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--sub,#8696a0); }
+.mp-review-no-media i { font-size: 32px; }
+.mp-review-no-media span { font-size: 12px; }
+.mp-preview-body { padding: 14px 16px 16px; }
+.mp-preview-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.mp-badge { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.mp-badge-cat  { background: rgba(230,168,23,.15); color: #e6a817; }
+.mp-badge-avail.avail-available { background: rgba(37,211,102,.15); color: #25d366; }
+.mp-badge-avail.avail-reserved  { background: rgba(255,193,7,.15);  color: #ffc107; }
+.mp-badge-avail.avail-sold      { background: rgba(241,92,109,.15); color: #f15c6d; }
+.mp-preview-price { font-size: 22px; font-weight: 800; color: #e6a817; line-height: 1.1; margin-bottom: 4px; letter-spacing: -.5px; }
+.mp-preview-neg { font-size: 11px; color: var(--accent2,#25d366); display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
+.mp-preview-caption { font-size: 13px; color: var(--text,#e9edef); line-height: 1.5; margin: 8px 0; }
+.mp-preview-meta { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--sub,#8696a0); margin-top: 8px; }
+.mp-preview-meta span { display: flex; align-items: center; gap: 5px; }
+.mp-preview-meta i { color: #e6a817; font-size: 10px; }
+
+/* ── Info banner ────────────────────────────────────────────────── */
+.mp-info-banner { display: flex; align-items: flex-start; gap: 8px; background: rgba(230,168,23,.08); border: 1px solid rgba(230,168,23,.2); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: rgba(255,255,255,.65); line-height: 1.5; margin-bottom: 16px; }
+.mp-info-banner i { color: #e6a817; margin-top: 1px; flex-shrink: 0; }
+
+/* ── Post message ───────────────────────────────────────────────── */
+.mp-post-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 12px; text-align: center; }
+.mp-post-msg.ok  { background: rgba(37,211,102,.12); color: #25d366; }
+.mp-post-msg.err { background: rgba(241,92,109,.12); color: #f15c6d; }
+</style>

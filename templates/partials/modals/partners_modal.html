@@ -1,0 +1,36 @@
+<div id="partners-modal-overlay" class="modal-overlay custom-modal-overlay" onclick="if(event.target===this){this.classList.remove('open');this.style.display='none';}">
+  <div class="modal-card" style="width:360px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <i class="fas fa-satellite-dish"></i>
+      <h3>Partners &amp; Channels</h3>
+      <button class="modal-close" onclick="document.getElementById('partners-modal-overlay').classList.remove('open');document.getElementById('partners-modal-overlay').style.display='none';">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--sub);margin-bottom:16px;line-height:1.55;">Explore our partner platforms and community channels.</p>
+      <a href="https://hitfizz.pythonanywhere.com" target="_blank" rel="noopener" class="prtn-item">
+        <div class="prtn-icon-wrap">🎵</div>
+        <div class="prtn-meta">
+          <div class="prtn-name">HitFizz</div>
+          <div class="prtn-sub">Load your Music &amp; entertainment hub</div>
+        </div>
+        <i class="fas fa-external-link-alt prtn-arrow"></i>
+      </a>
+      <a href="#" class="prtn-item">
+        <div class="prtn-icon-wrap ph" style="font-size:22px;color:var(--sub);">📢</div>
+        <div class="prtn-meta">
+          <div class="prtn-name">Community News</div>
+          <div class="prtn-sub">Coming soon — stay tuned</div>
+        </div>
+        <span style="font-size:11px;background:var(--accent);color:#fff;padding:3px 8px;border-radius:8px;font-weight:600;">Soon</span>
+      </a>
+      <a href="#" class="prtn-item">
+        <div class="prtn-icon-wrap ph" style="font-size:22px;color:var(--sub);">🛒</div>
+        <div class="prtn-meta">
+          <div class="prtn-name">Fizz-me Market</div>
+          <div class="prtn-sub">Coming soon — buy &amp; sell locally</div>
+        </div>
+        <span style="font-size:11px;background:var(--accent);color:#fff;padding:3px 8px;border-radius:8px;font-weight:600;">Soon</span>
+      </a>
+    </div>
+  </div>
+</div>

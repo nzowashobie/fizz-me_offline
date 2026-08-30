@@ -1,0 +1,606 @@
+<script>
+  let activeRecipient = null; // Tracks the currently selected recipient
+  const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
+
+  // Initialize WebSocket connection
+  const chatSocket = new WebSocket(`ws://${window.location.host}/ws/chat/`);
+
+  // Handle WebSocket connection errors
+  chatSocket.onerror = function (e) {
+    console.error("WebSocket error:", e);
+    alert("Failed to connect to the chat server. Please refresh the page.");
+  };
+
+  // Handle incoming WebSocket messages
+  chatSocket.onmessage = function (e) {
+    const data = JSON.parse(e.data);
+    console.log("Received WebSocket message:", data);
+
+    if (data.type === "error") {
+      console.error("WebSocket error:", data.message);
+      alert(`Error: ${data.message}`);
+    } else if (data.type === "chat_message") {
+      // Render the received message in the chat box
+      renderMessage(data);
+
+      // Show notification if the message is from another user and not the active recipient
+      if (data.sender !== "{{ request.user.username }}" && data.sender !== activeRecipient) {
+        showNotification(`New message from ${data.sender}`, data.message);
+      }
+
+      // Update unread counts
+      fetchUnreadCounts();
+    }
+  };
+
+  // Function to load past messages for a recipient
+  async function loadPastMessages(recipient) {
+    try {
+      const response = await fetch(`/api/messages/?recipient=${recipient}`);
+      if (!response.ok) throw new Error(`Failed to fetch messages: ${response.statusText}`);
+      const messages = await response.json();
+
+      const chatBox = document.querySelector("#id_chat_item_container");
+      chatBox.innerHTML = ""; // Clear the chat box
+
+      // Display the selected username in the chat header
+      const selectedUserNameElement = document.querySelector("#selected-user-name");
+      if (selectedUserNameElement) {
+        selectedUserNameElement.textContent = `Chatting with ${recipient}`;
+      }
+
+      // Render each message
+      messages.forEach(message => {
+        if (message.recipient === recipient || message.sender === recipient) {
+          renderMessage(message);
+        }
+      });
+
+      // Auto-scroll to the bottom
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      // Mark messages as read
+      await fetch(`/api/messages/mark_as_read/?sender=${recipient}`, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": "{{ csrf_token }}",
+        },
+      });
+
+      // Update unread count
+      const unreadCountElement = document.querySelector(`#unread-count-${recipient}`);
+      if (unreadCountElement) {
+        unreadCountElement.textContent = "0";
+      }
+    } catch (error) {
+      console.error("Error loading past messages:", error);
+      alert("Failed to load past messages. Please try again.");
+    }
+  }
+
+  // Function to render a message in the chat box
+  function renderMessage(message) {
+    const chatBox = document.querySelector("#id_chat_item_container");
+    if (!chatBox) {
+      console.error("Chat box element not found!");
+      return;
+    }
+
+    const messageContainer = document.createElement("div");
+    messageContainer.classList.add(
+      message.sender === "{{ request.user.username }}" ? "user-message-container" : "other-message-container"
+    );
+
+    const messageElement = document.createElement("div");
+    messageElement.classList.add("chat-message");
+    messageElement.classList.add(
+      message.sender === "{{ request.user.username }}" ? "user-message" : "other-message"
+    );
+
+    const messageContent = document.createElement("div");
+    messageContent.classList.add("message-content");
+
+    // Create message header
+    const messageHeader = document.createElement("div");
+    messageHeader.classList.add("message-header");
+
+    // Add username
+    const username = document.createElement("strong");
+    username.textContent = message.sender;
+    messageHeader.appendChild(username);
+
+    // Add timestamp
+    const timestamp = document.createElement("span");
+    timestamp.classList.add("message-timestamp");
+    timestamp.textContent = formatTimestamp(message.timestamp);
+    messageHeader.appendChild(timestamp);
+
+    // Add message header to message content
+    messageContent.appendChild(messageHeader);
+
+    // Add message text
+    const messageText = document.createElement("div");
+    messageText.classList.add("message-text");
+    messageText.textContent = message.message;
+    messageContent.appendChild(messageText);
+
+    // Add attachments (if any)
+    if (message.attachments && message.attachments.length > 0) {
+      const attachmentContainer = document.createElement("div");
+      attachmentContainer.classList.add("attachment-container");
+
+      message.attachments.forEach(attachment => {
+        const attachmentElement = document.createElement("div");
+        attachmentElement.classList.add("attachment");
+
+        // Check if file_type exists before calling startsWith
+        if (attachment.file_type && attachment.file_type.startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = attachment.file_url;
+          img.style.maxWidth = "100%";
+          img.style.height = "auto";
+          img.style.borderRadius = "8px";
+          img.style.border = "1px solid #ddd";
+          img.style.cursor = "pointer";
+
+          // Add zoom functionality
+          handleZoom(img);
+
+          attachmentElement.appendChild(img);
+        } else if (attachment.file_type && attachment.file_type.startsWith("video/")) {
+          const video = document.createElement("video");
+          video.src = attachment.file_url;
+          video.controls = true;
+          video.style.maxWidth = "100%";
+          video.style.height = "auto";
+          video.style.borderRadius = "8px";
+          video.style.border = "1px solid #ddd";
+          video.style.cursor = "pointer";
+
+          // Add zoom functionality
+          handleZoom(video);
+
+          attachmentElement.appendChild(video);
+        } else if (attachment.file_type && attachment.file_type.startsWith("audio/")) {
+          const audio = document.createElement("audio");
+          audio.src = attachment.file_url;
+          audio.controls = true;
+          audio.style.width = "100%";
+          attachmentElement.appendChild(audio);
+        } else {
+          // For other file types (e.g., PDF, documents), show a file icon and name
+          const fileLink = document.createElement("div");
+          fileLink.classList.add("file-attachment");
+
+          const fileIcon = document.createElement("i");
+          fileIcon.classList.add("fas", "fa-file");
+          fileIcon.style.marginRight = "5px";
+          fileLink.appendChild(fileIcon);
+
+          const fileName = document.createElement("span");
+          fileName.textContent = attachment.file_name;
+          fileLink.appendChild(fileName);
+
+          fileLink.style.display = "flex";
+          fileLink.style.alignItems = "center";
+          fileLink.style.padding = "5px";
+          fileLink.style.border = "1px solid #ddd";
+          fileLink.style.borderRadius = "8px";
+          fileLink.style.backgroundColor = "#f9f9f9";
+          fileLink.style.cursor = "pointer";
+          fileLink.addEventListener("click", () => {
+            window.open(attachment.file_url, "_blank");
+          });
+
+          attachmentElement.appendChild(fileLink);
+        }
+
+        attachmentContainer.appendChild(attachmentElement);
+      });
+
+      messageContent.appendChild(attachmentContainer);
+    }
+
+    // Add message content to message element
+    messageElement.appendChild(messageContent);
+
+    // Add message element to the container
+    messageContainer.appendChild(messageElement);
+
+    // Add message container to chat box
+    chatBox.appendChild(messageContainer);
+
+    // Auto-scroll to the bottom
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  // Function to format timestamp (e.g., "12:34 PM")
+  function formatTimestamp(timestamp) {
+    if (!timestamp) {
+      console.error("Timestamp is missing or undefined");
+      return "Invalid Time";
+    }
+
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) {
+      console.error("Invalid timestamp:", timestamp);
+      return "Invalid Time";
+    }
+
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const formattedHours = hours % 12 || 12; // Convert to 12-hour format
+    const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+    return `${formattedHours}:${formattedMinutes} ${ampm}`;
+  }
+
+  // Function to handle zooming images and videos
+  function handleZoom(element) {
+    element.addEventListener("click", () => {
+      if (element.classList.contains("zoomed")) {
+        element.classList.remove("zoomed");
+        document.body.style.overflow = "auto";
+      } else {
+        element.classList.add("zoomed");
+        document.body.style.overflow = "hidden";
+      }
+    });
+  }
+
+  // Function to show notification
+  function showNotification(title, message) {
+    const notification = document.querySelector("#custom-notification");
+    const notificationSound = document.getElementById("notification-sound");
+
+    if (notification) {
+      notification.textContent = `${title}: ${message}`;
+      notification.style.display = "block";
+      setTimeout(() => {
+        notification.style.display = "none";
+      }, 3000);
+    }
+
+    if (notificationSound) {
+      notificationSound.play().catch(error => {
+        console.error("Failed to play notification sound:", error);
+      });
+    }
+
+    if (Notification.permission === "granted") {
+      new Notification(title, {
+        body: message,
+        icon: "{% static 'images/notification-icon.png' %}",
+      });
+    }
+  }
+
+  // Function to send a message
+  async function sendMessage() {
+    const messageInput = document.querySelector("#id_message_send_input");
+    const files = document.querySelector("#id_file_input").files;
+
+    if ((messageInput.value.trim() || files.length > 0) && activeRecipient) {
+      const attachments = [];
+      for (const file of files) {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File ${file.name} exceeds the maximum size limit of 25MB.`);
+          return;
+        }
+
+        const fileData = await readFileAsBase64(file);
+        attachments.push({
+          file_name: file.name,
+          file_data: fileData,
+        });
+      }
+
+      const messageData = JSON.stringify({
+        type: "chat_message",
+        sender: "{{ request.user.username }}",
+        recipient: activeRecipient,
+        message: messageInput.value,
+        attachments: attachments,
+        timestamp: new Date().toISOString(), // Add timestamp
+      });
+
+      // Check if WebSocket is open
+      if (chatSocket.readyState === WebSocket.OPEN) {
+        chatSocket.send(messageData);
+      } else {
+        console.error("WebSocket is not open. Please refresh the page.");
+        alert("WebSocket is not open. Please refresh the page.");
+        return;
+      }
+
+      // Clear the input fields and preview
+      messageInput.value = "";
+      document.querySelector("#id_file_input").value = "";
+      const attachmentPreview = document.querySelector("#attachmentPreview");
+      if (attachmentPreview) {
+        attachmentPreview.innerHTML = ""; // Clear the attachment preview
+      }
+
+      // Hide the send button
+      toggleSendButtonVisibility();
+    } else {
+      console.error("Error: Missing message, recipient, or files.");
+      alert("Please enter a message and select a recipient.");
+    }
+  }
+
+  // Function to read a file as base64
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]); // Extract base64 data
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Function to toggle send button visibility
+  function toggleSendButtonVisibility() {
+    const messageInput = document.querySelector("#id_message_send_input");
+    const sendButton = document.querySelector("#id_message_send_button");
+    const files = document.querySelector("#id_file_input").files;
+
+    if (messageInput.value.trim() || files.length > 0) {
+      sendButton.style.display = "block"; // Show send button
+    } else {
+      sendButton.style.display = "none"; // Hide send button
+    }
+  }
+
+  // Function to preview attachments
+  function previewAttachments() {
+    const files = document.querySelector("#id_file_input").files;
+    const attachmentPreview = document.querySelector("#attachmentPreview");
+    attachmentPreview.innerHTML = ""; // Clear previous previews
+
+    if (files.length > 0) {
+      Array.from(files).forEach(file => {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File ${file.name} exceeds the maximum size limit of 25MB.`);
+          return;
+        }
+
+        const attachmentElement = document.createElement("div");
+        attachmentElement.classList.add("attachment-preview");
+
+        if (file.type.startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = URL.createObjectURL(file);
+          img.style.maxWidth = "100px";
+          img.style.maxHeight = "100px";
+          img.style.borderRadius = "8px";
+          img.style.border = "1px solid #ddd";
+          img.style.margin = "5px 0";
+          attachmentElement.appendChild(img);
+        } else if (file.type.startsWith("video/")) {
+          const video = document.createElement("video");
+          video.src = URL.createObjectURL(file);
+          video.controls = true;
+          video.style.maxWidth = "100px";
+          video.style.maxHeight = "100px";
+          video.style.borderRadius = "8px";
+          video.style.border = "1px solid #ddd";
+          video.style.margin = "5px 0";
+          attachmentElement.appendChild(video);
+        } else if (file.type.startsWith("audio/")) {
+          const audio = document.createElement("audio");
+          audio.src = URL.createObjectURL(file);
+          audio.controls = true;
+          audio.style.width = "100%";
+          audio.style.margin = "5px 0";
+          attachmentElement.appendChild(audio);
+        } else {
+          const fileLink = document.createElement("div");
+          fileLink.textContent = file.name;
+          fileLink.style.margin = "5px";
+          attachmentElement.appendChild(fileLink);
+        }
+
+        // Add remove button for each attachment
+        const removeButton = document.createElement("button");
+        removeButton.textContent = "×";
+        removeButton.classList.add("remove-attachment");
+        removeButton.addEventListener("click", () => {
+          attachmentElement.remove();
+          toggleSendButtonVisibility();
+        });
+        attachmentElement.appendChild(removeButton);
+
+        attachmentPreview.appendChild(attachmentElement);
+      });
+    }
+
+    toggleSendButtonVisibility();
+  }
+
+  // Function to fetch unread counts
+  async function fetchUnreadCounts() {
+    try {
+      const response = await fetch("/api/messages/unread_counts/");
+      if (!response.ok) throw new Error(`Failed to fetch unread counts: ${response.statusText}`);
+      const unreadCounts = await response.json();
+
+      // Update the UI with unread counts
+      Object.keys(unreadCounts).forEach(sender => {
+        const unreadCountElement = document.querySelector(`#unread-count-${sender}`);
+        if (unreadCountElement) {
+          unreadCountElement.textContent = unreadCounts[sender];
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching unread counts:", error);
+    }
+  }
+
+  // Add event listeners
+  document.addEventListener("DOMContentLoaded", function () {
+    // Add event listeners for sending messages, uploading files, etc.
+    const messageInput = document.querySelector("#id_message_send_input");
+    const sendButton = document.querySelector("#id_message_send_button");
+    const fileInput = document.querySelector("#id_file_input");
+
+    // Show/hide send button based on input
+    messageInput.addEventListener("input", toggleSendButtonVisibility);
+    fileInput.addEventListener("change", previewAttachments);
+
+    // Send message on button click
+    sendButton.addEventListener("click", sendMessage);
+
+    // Send message on pressing Enter key
+    messageInput.addEventListener("keyup", function (e) {
+      if (e.keyCode === 13) { // Enter key
+        sendMessage();
+      }
+    });
+
+    // Add event listeners to conversation items
+    document.querySelectorAll(".conversation-item").forEach(item => {
+      item.addEventListener("click", async function () {
+        // Clear the chat box
+        const chatBox = document.querySelector("#id_chat_item_container");
+        if (chatBox) {
+          chatBox.innerHTML = "";
+        }
+
+        // Set the active recipient
+        activeRecipient = this.getAttribute("data-recipient");
+
+        // Highlight the active conversation
+        document.querySelectorAll(".conversation-item").forEach(item => {
+          item.classList.remove("active");
+        });
+        this.classList.add("active");
+
+        // Load past messages for this recipient
+        await loadPastMessages(activeRecipient);
+
+        // Hide the side navigation on mobile
+        if (window.innerWidth <= 768) {
+          const sideNav = document.querySelector("#side-navigation");
+          if (sideNav) {
+            sideNav.classList.add("hidden");
+          }
+        }
+      });
+    });
+
+    // Add event listener to the logged-in username
+    document.querySelector("#user-profile").addEventListener("click", function () {
+      const sideNav = document.querySelector("#side-navigation");
+      const chatInput = document.querySelector(".chat-input");
+
+      if (sideNav && chatInput) {
+        sideNav.classList.toggle("hidden");
+        chatInput.classList.toggle("sidebar-hidden"); // Toggle the class for chat input
+      }
+    });
+
+    // Fetch unread counts on page load
+    fetchUnreadCounts();
+
+    // Drag-and-Drop Support
+    const chatInputArea = document.querySelector(".chat-input");
+    if (chatInputArea) {
+      chatInputArea.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        chatInputArea.style.backgroundColor = "#f0f0f0";
+      });
+
+      chatInputArea.addEventListener("dragleave", () => {
+        chatInputArea.style.backgroundColor = "";
+      });
+
+      chatInputArea.addEventListener("drop", (e) => {
+        e.preventDefault();
+        chatInputArea.style.backgroundColor = "";
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          fileInput.files = files;
+          previewAttachments();
+        }
+      });
+    }
+  });
+
+   // Add event listener to the upload button
+   document.querySelector("#id_file_upload_button").addEventListener("click", function () {
+    document.querySelector("#id_file_input").click(); // Trigger file input
+  });
+
+  // Add event listener to the file input
+  document.querySelector("#id_file_input").addEventListener("change", function () {
+    previewAttachments(); // Preview selected files
+  });
+
+  // Function to preview attachments
+  function previewAttachments() {
+    const files = document.querySelector("#id_file_input").files;
+    const attachmentPreview = document.querySelector("#attachmentPreview");
+    attachmentPreview.innerHTML = ""; // Clear previous previews
+
+    if (files.length > 0) {
+      Array.from(files).forEach(file => {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File ${file.name} exceeds the maximum size limit of 25MB.`);
+          return;
+        }
+
+        const attachmentElement = document.createElement("div");
+        attachmentElement.classList.add("attachment-preview");
+
+        if (file.type.startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = URL.createObjectURL(file);
+          img.style.maxWidth = "100px";
+          img.style.maxHeight = "100px";
+          img.style.borderRadius = "8px";
+          img.style.border = "1px solid #ddd";
+          img.style.margin = "5px 0";
+          attachmentElement.appendChild(img);
+        } else if (file.type.startsWith("video/")) {
+          const video = document.createElement("video");
+          video.src = URL.createObjectURL(file);
+          video.controls = true;
+          video.style.maxWidth = "100px";
+          video.style.maxHeight = "100px";
+          video.style.borderRadius = "8px";
+          video.style.border = "1px solid #ddd";
+          video.style.margin = "5px 0";
+          attachmentElement.appendChild(video);
+        } else if (file.type.startsWith("audio/")) {
+          const audio = document.createElement("audio");
+          audio.src = URL.createObjectURL(file);
+          audio.controls = true;
+          audio.style.width = "100%";
+          audio.style.margin = "5px 0";
+          attachmentElement.appendChild(audio);
+        } else {
+          const fileLink = document.createElement("div");
+          fileLink.textContent = file.name;
+          fileLink.style.margin = "5px";
+          attachmentElement.appendChild(fileLink);
+        }
+
+        // Add remove button for each attachment
+        const removeButton = document.createElement("button");
+        removeButton.textContent = "×";
+        removeButton.classList.add("remove-attachment");
+        removeButton.addEventListener("click", () => {
+          attachmentElement.remove();
+          toggleSendButtonVisibility();
+        });
+        attachmentElement.appendChild(removeButton);
+
+        attachmentPreview.appendChild(attachmentElement);
+      });
+    }
+
+    toggleSendButtonVisibility();
+  }
+</script>

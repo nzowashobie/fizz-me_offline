@@ -1,0 +1,21 @@
+<div id="phone-modal" class="modal-overlay" onclick="if(event.target===this)window.Asterix.ui._phoneResolve(null)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <i class="fas fa-user-plus"></i>
+      <h3>Add Contact</h3>
+      <button class="modal-close" onclick="window.Asterix.ui._phoneResolve(null)">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Phone Number</label>
+        <input type="tel" id="phone-modal-input" placeholder="+2609XXXXXXXX" autocomplete="tel">
+        <span class="modal-hint">Enter the number with country code. Only registered Asterix users can be added.</span>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="window.Asterix.ui._phoneResolve(null)">Cancel</button>
+        <button class="modal-btn primary" id="phone-modal-ok" onclick="window.Asterix.ui._phoneResolve(document.getElementById('phone-modal-input').value.trim())">Add</button>
+      </div>
+      <div class="modal-status" id="phone-modal-status"></div>
+    </div>
+  </div>
+</div>

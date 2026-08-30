@@ -1,0 +1,217 @@
+<!-- Status Container -->
+<div class="status-container">
+    <!-- General Status -->
+    <div class="status-item" onclick="openStatus(event, 'General')">
+        <div class="status-ring has-updates">
+            <i class="fas fa-globe"></i>
+        </div>
+        <span>General</span>
+    </div>
+
+    <!-- Funerals Status -->
+    <div class="status-item" onclick="openStatus(event, 'Funerals')">
+        <div class="status-ring has-updates">
+            <i class="fas fa-dove"></i>
+        </div>
+        <span>Funerals</span>
+    </div>
+
+    <!-- Weddings Status (Empty as per image_89d055.png) -->
+    <div class="status-item" onclick="openStatus(event, 'Weddings')">
+        <div class="status-ring has-updates">
+            <!-- Left empty intentionally to match the UI -->
+        </div>
+        <span>Weddings</span>
+    </div>
+
+    <!-- Market Status -->
+    <div class="status-item" onclick="openStatus(event, 'Market')">
+        <div class="status-ring has-updates">
+            <i class="fas fa-store"></i>
+        </div>
+        <span>Market</span>
+    </div>
+</div>
+
+<!-- Full Screen Status Viewer Modal -->
+<div id="statusModal" class="status-modal" style="display: none;">
+    <div class="status-modal-content">
+        <!-- Progress Bar -->
+        <div class="status-progress-container">
+            <div id="statusProgressBar" class="status-progress-bar"></div>
+        </div>
+        
+        <!-- Header -->
+        <div class="status-header">
+            <span id="statusTitle" class="status-title">Category</span>
+            <span class="close-status" onclick="closeStatus(event)">&times;</span>
+        </div>
+
+        <!-- Body -->
+        <div class="status-body">
+            <p>Viewing latest updates for <span id="statusCategoryName"></span>...</p>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Container styling matching the dark theme */
+    .status-container {
+        display: flex;
+        gap: 20px;
+        padding: 15px;
+        background-color: #1e2022;
+        overflow-x: auto;
+        color: #d1d7db;
+        border-bottom: 1px solid #2a2f32;
+        scrollbar-width: none; /* Firefox */
+    }
+    .status-container::-webkit-scrollbar {
+        display: none; /* Chrome/Safari */
+    }
+
+    /* Individual Status Items */
+    .status-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        cursor: pointer;
+        min-width: 65px;
+    }
+
+    /* Teal Status Rings */
+    .status-ring {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border: 2px solid #00a884;
+        margin-bottom: 8px;
+        background-color: #2a2f32;
+        font-size: 20px;
+        color: #ffffff;
+        padding: 2px; /* Space between border and inner content */
+        background-clip: content-box;
+    }
+
+    .status-item span {
+        font-size: 13px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* Status Viewer Modal Styling */
+    .status-modal {
+        position: fixed;
+        top: 0; 
+        left: 0; 
+        width: 100%; 
+        height: 100%;
+        background: #000000;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+    }
+
+    .status-modal-content {
+        width: 100%;
+        max-width: 500px;
+        height: 100vh;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Segmented Progress Bar */
+    .status-progress-container {
+        width: 100%;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.3);
+        margin-top: 10px;
+        padding: 0 10px;
+        box-sizing: border-box;
+    }
+
+    .status-progress-bar {
+        height: 100%;
+        width: 0%;
+        background: #ffffff;
+        border-radius: 2px;
+    }
+
+    .status-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px;
+    }
+
+    .status-title {
+        font-weight: bold;
+        font-size: 16px;
+    }
+
+    .close-status {
+        font-size: 30px;
+        cursor: pointer;
+        line-height: 1;
+    }
+
+    .status-body {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        text-align: center;
+    }
+</style>
+
+<script>
+    let statusTimeout;
+
+    function openStatus(event, category) {
+        // Blocks other UI modals from triggering when a status cover is clicked
+        event.stopPropagation();
+        
+        // Populate modal data
+        const modal = document.getElementById('statusModal');
+        document.getElementById('statusTitle').innerText = category;
+        document.getElementById('statusCategoryName').innerText = category;
+        
+        // Show modal
+        modal.style.display = 'flex';
+        
+        // Reset and animate progress bar
+        const progressBar = document.getElementById('statusProgressBar');
+        progressBar.style.transition = 'none';
+        progressBar.style.width = '0%';
+        
+        // Small delay to allow CSS reset before transitioning
+        setTimeout(() => {
+            progressBar.style.transition = 'width 5s linear';
+            progressBar.style.width = '100%';
+        }, 50);
+
+        // Auto-close status after 5 seconds
+        statusTimeout = setTimeout(() => {
+            closeStatus(event);
+        }, 5000);
+    }
+
+    function closeStatus(event) {
+        if (event) event.stopPropagation();
+        
+        const modal = document.getElementById('statusModal');
+        modal.style.display = 'none';
+        
+        // Clear the timer so it doesn't fire unexpectedly if closed manually
+        if (statusTimeout) {
+            clearTimeout(statusTimeout);
+        }
+    }
+</script>

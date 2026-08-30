@@ -1,0 +1,13 @@
+<div id="confirm-modal" class="modal-overlay" onclick="if(event.target===this)window.Asterix.ui._confirmResolve(false)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-body" style="padding:26px 24px 20px;">
+      <div class="confirm-icon" id="confirm-icon">⚠️</div>
+      <div class="confirm-title" id="confirm-title">Are you sure?</div>
+      <div class="confirm-body" id="confirm-body"></div>
+      <div class="modal-actions" style="margin-top:20px;">
+        <button class="modal-btn secondary" onclick="window.Asterix.ui._confirmResolve(false)">Cancel</button>
+        <button class="modal-btn danger" id="confirm-ok-btn" onclick="window.Asterix.ui._confirmResolve(true)">Confirm</button>
+      </div>
+    </div>
+  </div>
+</div>

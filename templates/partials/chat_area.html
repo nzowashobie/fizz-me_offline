@@ -1,0 +1,48 @@
+{% load static %}
+<div id="chat-area">
+
+  <!-- Header -->
+  <div id="chat-header">
+    <button id="back-btn" title="Back" aria-label="Go back to conversation list">
+      <i class="fas fa-arrow-left"></i>
+    </button>
+    <img id="chat-header-avatar"
+         src=""
+         alt="Contact profile picture"
+         onerror="this.src='{% static "images/default_profile_picture.webp" %}'"
+         style="display:none;">
+    <div class="chat-header-info" id="chat-header-info">
+      <div class="no-chat-hint">Select a conversation to start chatting</div>
+    </div>
+    <button id="gear-btn" title="Chat options" aria-label="Chat options">
+      <i class="fas fa-ellipsis-v"></i>
+    </button>
+  </div>
+
+  <!-- Message container -->
+  <div id="id_chat_item_container"
+       aria-live="polite"
+       aria-label="Conversation messages"
+       role="log"></div>
+
+  <!-- Input bar -->
+  <div id="chat-input-bar" style="position:relative;">
+    <div id="emoji-picker-wrap"></div>
+    <div id="attachment-preview"></div>
+    <div class="input-row">
+      <button class="icon-btn" id="emoji-toggle-btn" title="Emoji" aria-label="Emoji">
+        <i class="fas fa-smile"></i>
+      </button>
+      <button class="icon-btn" id="attach-btn" title="Attach file" aria-label="Attach file">
+        <i class="fas fa-paperclip"></i>
+      </button>
+      <textarea id="msg-input" placeholder="Type a message…" rows="1"></textarea>
+      <label for="file-input" class="sr-only">Attach files</label>
+      <input type="file" id="file-input" multiple style="display:none;" aria-label="Attach files">
+      <button id="send-btn" title="Send message" aria-label="Send message">
+        <i class="fas fa-paper-plane"></i>
+      </button>
+    </div>
+  </div>
+
+</div>

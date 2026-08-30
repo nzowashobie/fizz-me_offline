@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asterix — Login</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="icon" type="image/png" href="{% static 'images/favicon.ico' %}">
+    <style>
+        /* ════════════════════════════════════════════
+           RESET & BASE
+           ════════════════════════════════════════════ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b141a;
+            background-image:
+                radial-gradient(ellipse at 20% 50%, rgba(18, 140, 126, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 50%, rgba(37, 211, 102, 0.08) 0%, transparent 60%),
+                linear-gradient(135deg, #0b141a 0%, #111616 50%, #0b141a 100%);
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Decorative animated blobs */
+        body::before,
+        body::after {
+            content: '';
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::before {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, #128c7e, transparent 70%);
+            top: -100px;
+            right: -100px;
+            animation: floatBlob 8s ease-in-out infinite alternate;
+        }
+        body::after {
+            width: 350px;
+            height: 350px;
+            background: radial-gradient(circle, #25d366, transparent 70%);
+            bottom: -80px;
+            left: -80px;
+            animation: floatBlob 10s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes floatBlob {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, -30px) scale(1.2); }
+        }
+
+        /* ════════════════════════════════════════════
+           MAIN CARD
+           ════════════════════════════════════════════ */
+        .login-container {
+            position: relative;
+            z-index: 1;
+            background: rgba(26, 31, 31, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 24px;
+            padding: 40px 36px 44px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow:
+                0 25px 80px rgba(0, 0, 0, 0.6),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            animation: cardIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(30px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* ── Header ── */
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .login-header .logo-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #128c7e, #0d6b5e);
+            border-radius: 18px;
+            font-size: 28px;
+            color: #fff;
+            margin-bottom: 16px;
+            box-shadow: 0 8px 24px rgba(18, 140, 126, 0.35);
+        }
+
+        .login-header h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #e9edef;
+            letter-spacing: -0.3px;
+        }
+
+        .login-header p {
+            font-size: 14px;
+            color: #8696a0;
+            margin-top: 6px;
+            font-weight: 400;
+        }
+
+        /* ── Form ── */
+        #login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #8696a0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group label i {
+            color: #25d366;
+            font-size: 13px;
+            width: 16px;
+            text-align: center;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1.5px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            color: #e9edef;
+            font-size: 15px;
+            transition: all 0.25s ease;
+            outline: none;
+        }
+
+        .form-group input:focus {
+            border-color: #25d366;
+            background: rgba(255, 255, 255, 0.07);
+            box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.08);
+        }
+
+        .form-group input::placeholder {
+            color: #5a6a72;
+        }
+
+        .form-group input.error {
+            border-color: #f15c6d;
+            box-shadow: 0 0 0 4px rgba(241, 92, 109, 0.08);
+        }
+
+        /* ── Error Messages ── */
+        .field-errors {
+            display: none;
+            font-size: 12px;
+            color: #f15c6d;
+            margin-top: 2px;
+            padding-left: 4px;
+        }
+
+        .field-errors.show {
+            display: block;
+        }
+
+        .field-errors p {
+            margin: 2px 0;
+        }
+
+        /* ── Submit Button ── */
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #128c7e, #0d6b5e);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+            margin-top: 4px;
+            letter-spacing: 0.3px;
+        }
+
+        .login-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #25d366, #128c7e);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .login-btn:hover::before {
+            opacity: 1;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(18, 140, 126, 0.35);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .login-btn span {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        /* ── Spinner ── */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2.5px solid rgba(255, 255, 255, 0.15);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ── Footer Links ── */
+        .form-footer {
+            text-align: center;
+            margin-top: 6px;
+            font-size: 14px;
+            color: #8696a0;
+        }
+
+        .form-footer a {
+            color: #25d366;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+
+        .form-footer a:hover {
+            color: #128c7e;
+            text-decoration: underline;
+        }
+
+        /* ── Toast Notification ── */
+        .toast-msg {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #1a1f1f;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            padding: 14px 24px;
+            color: #e9edef;
+            font-size: 14px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            max-width: 90vw;
+        }
+
+        .toast-msg.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            pointer-events: auto;
+        }
+
+        .toast-msg i {
+            font-size: 18px;
+        }
+        .toast-msg.success i { color: #25d366; }
+        .toast-msg.error i { color: #f15c6d; }
+
+        /* ── Responsive ── */
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 28px 20px 34px;
+                border-radius: 18px;
+            }
+            .login-header h1 {
+                font-size: 22px;
+            }
+            .login-header .logo-icon {
+                width: 54px;
+                height: 54px;
+                font-size: 24px;
+            }
+            .form-group input {
+                font-size: 14px;
+                padding: 10px 14px;
+            }
+            .toast-msg {
+                bottom: 20px;
+                padding: 12px 18px;
+                font-size: 13px;
+                width: calc(100% - 40px);
+            }
+        }
+
+        @media (max-width: 380px) {
+            .login-container {
+                padding: 20px 14px 26px;
+            }
+            .login-header .logo-icon {
+                width: 46px;
+                height: 46px;
+                font-size: 20px;
+            }
+            .login-header h1 {
+                font-size: 19px;
+            }
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a3942;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3a4a52;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ════════════════════════════════════════════
+         MAIN CARD
+         ════════════════════════════════════════════ -->
+    <div class="login-container">
+
+        <!-- Header -->
+        <div class="login-header">
+            <div class="logo-icon">
+                <i class="fas fa-comment-dots"></i>
+            </div>
+            <h1>Welcome Back</h1>
+            <p>Log in to continue chatting</p>
+        </div>
+
+        <!-- Form -->
+        <form id="login-form" method="post" novalidate>
+            {% csrf_token %}
+
+            <!-- Username -->
+            <div class="form-group">
+                <label for="id_username">
+                    <i class="fas fa-user"></i> Username
+                </label>
+                <input type="text" id="id_username" name="username"
+                       placeholder="Enter your username"
+                       value="{{ form.username.value|default:'' }}"
+                       required
+                       autocomplete="username">
+                <div class="field-errors" id="username-errors">
+                    {% if form.username.errors %}
+                        {% for error in form.username.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Password -->
+            <div class="form-group">
+                <label for="id_password">
+                    <i class="fas fa-lock"></i> Password
+                </label>
+                <input type="password" id="id_password" name="password"
+                       placeholder="Enter your password"
+                       required
+                       autocomplete="current-password">
+                <div class="field-errors" id="password-errors">
+                    {% if form.password.errors %}
+                        {% for error in form.password.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Non-field errors (e.g., invalid login) -->
+            {% if form.non_field_errors %}
+                <div class="field-errors show" style="display:block; text-align:center;">
+                    {% for error in form.non_field_errors %}
+                        <p>{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <!-- Submit -->
+            <button type="submit" class="login-btn" id="login-btn">
+                <span>
+                    <i class="fas fa-sign-in-alt"></i>
+                    Log In
+                </span>
+            </button>
+
+            <!-- Footer -->
+            <div class="form-footer">
+                Don't have an account? <a href="{% url 'signup-user' %}">Sign Up</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TOAST
+         ════════════════════════════════════════════ -->
+    <div class="toast-msg" id="toast-msg">
+        <i class="fas fa-check-circle"></i>
+        <span id="toast-text">Success!</span>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         SCRIPTS (keep same functionality)
+         ════════════════════════════════════════════ -->
+    <script>
+        (function() {
+            'use strict';
+
+            // ── DOM refs ────────────────────────────────────────────────
+            const form = document.getElementById('login-form');
+            const usernameInput = document.getElementById('id_username');
+            const passwordInput = document.getElementById('id_password');
+            const submitBtn = document.getElementById('login-btn');
+            const toast = document.getElementById('toast-msg');
+            const toastText = document.getElementById('toast-text');
+
+            // ── Toast helper ─────────────────────────────────────────────
+            let toastTimer;
+
+            function showToast(message, type) {
+                toast.className = 'toast-msg show ' + (type || 'success');
+                toastText.textContent = message;
+                const icon = toast.querySelector('i');
+                icon.className = type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-check-circle';
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 5000);
+            }
+
+            // ── Show/hide field errors ──────────────────────────────────
+            function showFieldError(id, message) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.innerHTML = '<p>' + message + '</p>';
+                el.classList.add('show');
+                const input = el.closest('.form-group')?.querySelector('input');
+                if (input) input.classList.add('error');
+            }
+
+            function hideFieldError(id) {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.remove('show');
+                const input = el.closest('.form-group')?.querySelector('input');
+                if (input) input.classList.remove('error');
+            }
+
+            // ── Real-time validation on blur ────────────────────────────
+            usernameInput.addEventListener('blur', function() {
+                if (this.value.trim() === '' && this.hasAttribute('required')) {
+                    showFieldError('username-errors', 'Username is required.');
+                } else {
+                    hideFieldError('username-errors');
+                }
+            });
+
+            passwordInput.addEventListener('blur', function() {
+                if (this.value === '' && this.hasAttribute('required')) {
+                    showFieldError('password-errors', 'Password is required.');
+                } else {
+                    hideFieldError('password-errors');
+                }
+            });
+
+            // ── Form submission ──────────────────────────────────────────
+            form.addEventListener('submit', function(event) {
+                // Clear previous errors
+                hideFieldError('username-errors');
+                hideFieldError('password-errors');
+
+                let isValid = true;
+
+                // Username
+                if (!usernameInput.value.trim()) {
+                    showFieldError('username-errors', 'Username is required.');
+                    isValid = false;
+                }
+
+                // Password
+                if (!passwordInput.value) {
+                    showFieldError('password-errors', 'Password is required.');
+                    isValid = false;
+                }
+
+                if (!isValid) {
+                    event.preventDefault();
+                    showToast('Please fill in all fields.', 'error');
+                    return;
+                }
+
+                // Show loading state
+                submitBtn.disabled = true;
+                submitBtn.querySelector('span').innerHTML =
+                    '<span class="spinner"></span> Logging in...';
+
+                // Form will submit normally after this
+            });
+
+            // ── Show Django form errors on load ──────────────────────────
+            document.addEventListener('DOMContentLoaded', function() {
+                // Show any errors from the server
+                const errorContainers = document.querySelectorAll('.field-errors');
+                errorContainers.forEach(el => {
+                    if (el.innerHTML.trim() && el.innerHTML.trim() !== '') {
+                        el.classList.add('show');
+                        const input = el.closest('.form-group')?.querySelector('input');
+                        if (input) input.classList.add('error');
+                    }
+                });
+
+                // If there are non-field errors, they are already shown via Django's non_field_errors
+                const nonFieldErrors = document.querySelector('.field-errors.show:not(#username-errors):not(#password-errors)');
+                if (nonFieldErrors) {
+                    nonFieldErrors.style.display = 'block';
+                }
+            });
+
+            // ── Prevent double submit ────────────────────────────────────
+            let submitting = false;
+            form.addEventListener('submit', function() {
+                if (submitting) {
+                    event.preventDefault();
+                    return;
+                }
+                submitting = true;
+                setTimeout(() => { submitting = false; }, 3000);
+            });
+
+        })();
+    </script>
+
+</body>
+</html>

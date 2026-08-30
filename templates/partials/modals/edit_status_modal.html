@@ -1,0 +1,20 @@
+<div id="edit-status-overlay" class="modal-overlay" onclick="if(event.target===this)window.Asterix.status.closeEdit()">
+  <div class="modal-card" style="width:340px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <i class="fas fa-edit"></i>
+      <h3>Edit Status Caption</h3>
+      <button class="modal-close" onclick="window.Asterix.status.closeEdit()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Caption</label>
+        <textarea id="edit-status-caption" rows="3" style="background:var(--mid);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:10px 12px;font-size:13px;outline:none;width:100%;resize:none;" placeholder="Update your caption…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="window.Asterix.status.closeEdit()">Cancel</button>
+        <button class="modal-btn primary" id="edit-status-save-btn" onclick="window.Asterix.status.saveEdit()">Save</button>
+      </div>
+      <div class="modal-status" id="edit-status-msg"></div>
+    </div>
+  </div>
+</div>
