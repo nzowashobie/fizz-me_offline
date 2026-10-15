@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receipt {{ receipt_no }} · Asterix</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f6f5;margin:0;padding:24px;color:#111}
+  .card{max-width:520px;margin:0 auto;background:#fff;border-radius:14px;padding:28px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+  h1{font-size:20px;margin:0 0 4px}
+  .muted{color:#666;font-size:13px}
+  .row{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid #eee;font-size:14px}
+  .row span:first-child{color:#666}
+  .total{font-size:26px;font-weight:800;color:#128c7e;margin:18px 0 2px}
+  .status{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;background:#dff7e8;color:#128c7e}
+  .status.open{background:#fff4d6;color:#8a6100}
+  .actions{margin-top:20px;text-align:center}
+  button{padding:10px 18px;border:0;border-radius:20px;background:#128c7e;color:#fff;font-weight:700;cursor:pointer}
+  @media print{body{background:#fff;padding:0}.card{box-shadow:none}.actions{display:none}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Asterix Receipt</h1>
+  <div class="muted">{{ receipt_no }} · Issued {{ issued|date:"d M Y, H:i" }}</div>
+  <p><span class="status {% if not closed %}open{% endif %}">{% if closed %}Completed · Delivery closed{% else %}Paid · Awaiting delivery close{% endif %}</span></p>
+
+  <div class="row"><span>Item</span><span>{{ deal.status.caption|default:"Listing" }}</span></div>
+  <div class="row"><span>Seller</span><span>{{ deal.seller.username }}</span></div>
+  <div class="row"><span>Buyer</span><span>{{ deal.buyer.username }}</span></div>
+  <div class="row"><span>Delivery</span><span>{{ method_label }}</span></div>
+  {% if deal.collection_point_snapshot %}<div class="row"><span>Collection point</span><span>{{ deal.collection_point_snapshot }}</span></div>{% endif %}
+  {% if deal.delivery_address %}<div class="row"><span>Address</span><span>{{ deal.delivery_address }}</span></div>{% endif %}
+  <div class="row"><span>Payment method</span><span>{{ payment_label }}</span></div>
+  {% if deal.payment_reference %}<div class="row"><span>Payment reference</span><span>{{ deal.payment_reference }}</span></div>{% endif %}
+  <div class="row"><span>Deal opened</span><span>{{ deal.created_at|date:"d M Y, H:i" }}</span></div>
+  {% if tracker.delivered_at %}<div class="row"><span>Received</span><span>{{ tracker.delivered_at|date:"d M Y, H:i" }}</span></div>{% endif %}
+  {% if tracker.payment_released_at %}<div class="row"><span>Closed</span><span>{{ tracker.payment_released_at|date:"d M Y, H:i" }}</span></div>{% endif %}
+
+  <div class="total">K {{ deal.final_price }}</div>
+  <div class="muted">Total paid</div>
+  <div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div>
+</div>
+</body>
+</html>

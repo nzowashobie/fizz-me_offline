@@ -13,7 +13,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Avg, Count
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse, Http404
+from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -50,59 +51,85 @@ _MAX_EXTENSIONS         = 3
 
 # ─── Delivery / escrow ─────────────────────────────────────────────────────
 
+_METHODS = {
+    "collection": "Collect at the collection point",
+    "delivery": "Seller delivers to the buyer",
+}
+
+
+def _stages_for(method):
+    """Collection skips the in-transit step."""
+    if method == "collection":
+        return [s for s in _STAGE_ORDER if s != "in_transit"]
+    return list(_STAGE_ORDER)
+
+
+def _tracker_for(deal):
+    tracker, _ = DeliveryTracking.objects.get_or_create(
+        deal=deal, defaults={"stage": "order_placed"}
+    )
+    return tracker
+
+
 @csrf_exempt
 @login_required
 @require_http_methods(["POST"])
 def advance_delivery(request):
     """
-    Advance the delivery stage for a completed deal.
     POST: { "deal_id": 123, "stage": "in_transit", "notes": "..." }
+    Stages run in order for the chosen method. Payment is already complete.
     """
     try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
+        data = json.loads(request.body or b"{}")
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if not isinstance(data, dict):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    deal_id   = data.get('deal_id')
-    new_stage = data.get('stage', '').strip()
-    notes     = str(data.get('notes', '')).strip()[:500]
+    deal_id = data.get("deal_id")
+    new_stage = str(data.get("stage") or "").strip()
+    notes = str(data.get("notes") or "").strip()[:500]
 
     if not deal_id or not new_stage:
         return JsonResponse({"error": "deal_id and stage are required"}, status=400)
 
     try:
-        deal = Deal.objects.select_related('buyer', 'seller', 'status').get(pk=deal_id)
+        deal = Deal.objects.select_related("buyer", "seller", "status").get(pk=deal_id)
     except Deal.DoesNotExist:
         return JsonResponse({"error": "Deal not found"}, status=404)
 
     me = request.user
     if me not in (deal.buyer, deal.seller):
         return JsonResponse({"error": "Not a participant in this deal"}, status=403)
+    if deal.state != "completed":
+        return JsonResponse({"error": "Delivery starts once payment is complete"}, status=400)
 
-    tracker, _ = DeliveryTracking.objects.get_or_create(
-        deal=deal, defaults={'stage': 'order_placed'}
-    )
+    tracker = _tracker_for(deal)
     current = tracker.stage
 
-    # Validate forward-only transitions (disputed is always allowed unless closed)
-    if new_stage == 'disputed':
-        if current == 'payment_released':
+    if new_stage == "disputed":
+        if current == "payment_released":
             return JsonResponse({"error": "Cannot dispute a closed delivery"}, status=400)
-    elif new_stage in _STAGE_ORDER:
-        ci = _STAGE_ORDER.index(current) if current in _STAGE_ORDER else -1
-        ni = _STAGE_ORDER.index(new_stage)
-        if ni != ci + 1:
-            expected = _STAGE_ORDER[ci + 1] if ci + 1 < len(_STAGE_ORDER) else 'none'
-            return JsonResponse({
-                "error": f"Cannot jump from {current} to {new_stage}. Next expected: {expected}"
-            }, status=400)
     else:
-        return JsonResponse({"error": f"Unknown stage: {new_stage}"}, status=400)
+        if not tracker.delivery_method:
+            return JsonResponse(
+                {"error": "The buyer must choose collection or delivery first"}, status=400)
+        order = _stages_for(tracker.delivery_method)
+        if new_stage not in order:
+            return JsonResponse({"error": f"Unknown stage: {new_stage}"}, status=400)
+        ci = order.index(current) if current in order else -1
+        ni = order.index(new_stage)
+        if ni != ci + 1:
+            expected = order[ci + 1] if ci + 1 < len(order) else "none"
+            return JsonResponse(
+                {"error": f"Cannot jump from {current} to {new_stage}. Next expected: {expected}"},
+                status=400,
+            )
 
-    allowed = _STAGE_ACTOR.get(new_stage, 'both')
-    if allowed == 'seller' and me != deal.seller:
+    allowed = _STAGE_ACTOR.get(new_stage, "both")
+    if allowed == "seller" and me != deal.seller:
         return JsonResponse({"error": "Only the seller can mark this stage"}, status=403)
-    if allowed == 'buyer' and me != deal.buyer:
+    if allowed == "buyer" and me != deal.buyer:
         return JsonResponse({"error": "Only the buyer can mark this stage"}, status=403)
 
     ts = now()
@@ -110,21 +137,26 @@ def advance_delivery(request):
         tracker.stage = new_stage
         if notes:
             tracker.notes = notes
-        if new_stage == 'seller_confirmed':   tracker.seller_confirmed_at  = ts
-        elif new_stage == 'in_transit':       tracker.in_transit_at        = ts
-        elif new_stage == 'delivered':        tracker.delivered_at         = ts
-        elif new_stage == 'payment_released':
+        if new_stage == "seller_confirmed":
+            tracker.seller_confirmed_at = ts
+        elif new_stage == "in_transit":
+            tracker.in_transit_at = ts
+        elif new_stage == "delivered":
+            tracker.delivered_at = ts
+        elif new_stage == "payment_released":
             tracker.payment_released_at = ts
             SellerRating.objects.get_or_create(deal=deal)
-        elif new_stage == 'disputed':         tracker.disputed_at          = ts
+            UserStatus.objects.filter(pk=deal.status_id).update(availability="sold")
+        elif new_stage == "disputed":
+            tracker.disputed_at = ts
         tracker.save()
 
-        note_suffix = f' · "{notes}"' if notes else ''
-        other       = deal.seller if me == deal.buyer else deal.buyer
+        note_suffix = f' · "{notes}"' if notes else ""
+        other = deal.seller if me == deal.buyer else deal.buyer
         Message.objects.create(
             sender=me, recipient=other,
             message=_STAGE_LABELS.get(new_stage, new_stage) + note_suffix,
-            message_type='status_update', deal=deal, related_status=deal.status,
+            message_type="status_update", deal=deal, related_status=deal.status,
         )
 
     return JsonResponse({"status": "success", "stage": tracker.stage, "updated": _utc_iso(ts)})
@@ -133,29 +165,31 @@ def advance_delivery(request):
 @login_required
 def get_delivery_status(request):
     """GET /api/delivery/status/?deal_id=123"""
-    deal_id = request.GET.get('deal_id', '').strip()
-    if not deal_id:
+    deal_id = request.GET.get("deal_id", "").strip()
+    if not deal_id.isdigit():
         return JsonResponse({"error": "deal_id required"}, status=400)
-
     try:
-        deal = Deal.objects.get(pk=deal_id)
+        deal = Deal.objects.select_related("buyer", "seller").get(pk=int(deal_id))
     except Deal.DoesNotExist:
         return JsonResponse({"error": "Deal not found"}, status=404)
 
-    if request.user not in (deal.buyer, deal.seller):
+    me = request.user
+    if me not in (deal.buyer, deal.seller):
         return JsonResponse({"error": "Not a participant"}, status=403)
+    if deal.state != "completed":
+        return JsonResponse({"error": "Delivery starts once payment is complete"}, status=400)
 
-    try:
-        t = deal.delivery_tracking
-    except DeliveryTracking.DoesNotExist:
-        return JsonResponse({"error": "No tracking info yet"}, status=404)
-
-    ci     = _STAGE_ORDER.index(t.stage) if t.stage in _STAGE_ORDER else -1
-    next_s = _STAGE_ORDER[ci + 1] if ci + 1 < len(_STAGE_ORDER) else None
+    t = _tracker_for(deal)
+    order = _stages_for(t.delivery_method)
+    next_s = None
+    if t.delivery_method and t.stage in order and order.index(t.stage) + 1 < len(order):
+        next_s = order[order.index(t.stage) + 1]
 
     return JsonResponse({
         "deal_id":             deal.pk,
         "stage":               t.stage,
+        "delivery_method":     t.delivery_method,
+        "stages":              order,
         "notes":               t.notes,
         "seller_confirmed_at": _utc_iso(t.seller_confirmed_at) if t.seller_confirmed_at else None,
         "in_transit_at":       _utc_iso(t.in_transit_at)       if t.in_transit_at       else None,
@@ -163,8 +197,78 @@ def get_delivery_status(request):
         "payment_released_at": _utc_iso(t.payment_released_at) if t.payment_released_at else None,
         "disputed_at":         _utc_iso(t.disputed_at)         if t.disputed_at         else None,
         "next_stage":          next_s,
-        "next_actor":          _STAGE_ACTOR.get(next_s, '') if next_s else '',
-        "my_role":             "buyer" if request.user == deal.buyer else "seller",
+        "next_actor":          _STAGE_ACTOR.get(next_s, "") if next_s else "",
+        "my_role":             "buyer" if me == deal.buyer else "seller",
+        "closed":              t.stage == "payment_released",
+        "receipt_url":         f"/deals/{deal.pk}/receipt/",
+    })
+
+
+@csrf_exempt
+@login_required
+@require_http_methods(["POST"])
+def set_delivery_method(request):
+    """POST: { "deal_id": 123, "method": "collection" | "delivery" } buyer only."""
+    try:
+        data = json.loads(request.body or b"{}")
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    deal_id = data.get("deal_id")
+    method = str(data.get("method") or "").strip()
+    if not deal_id or method not in _METHODS:
+        return JsonResponse({"error": "deal_id and a valid method are required"}, status=400)
+
+    try:
+        deal = Deal.objects.select_related("buyer", "seller", "status").get(pk=deal_id)
+    except Deal.DoesNotExist:
+        return JsonResponse({"error": "Deal not found"}, status=404)
+    if request.user != deal.buyer:
+        return JsonResponse({"error": "Only the buyer chooses how the item is handed over"}, status=403)
+    if deal.state != "completed":
+        return JsonResponse({"error": "Delivery starts once payment is complete"}, status=400)
+
+    tracker = _tracker_for(deal)
+    if tracker.stage != "order_placed":
+        return JsonResponse({"error": "The method is locked once the seller has acted"}, status=400)
+
+    with transaction.atomic():
+        tracker.delivery_method = method
+        tracker.save(update_fields=["delivery_method"])
+        Message.objects.create(
+            sender=request.user, recipient=deal.seller,
+            message=f"🚚 Buyer chose: {_METHODS[method]}",
+            message_type="status_update", deal=deal, related_status=deal.status,
+        )
+    return JsonResponse({"status": "success", "delivery_method": method})
+
+
+@login_required
+def deal_receipt(request, deal_id):
+    """Printable receipt for a completed deal. Buyer and seller only."""
+    from .views_commerce import _METHOD_LABELS
+
+    try:
+        deal = Deal.objects.select_related("buyer", "seller", "status").get(pk=deal_id)
+    except Deal.DoesNotExist:
+        raise Http404("Deal not found")
+    if request.user not in (deal.buyer, deal.seller):
+        return HttpResponse("Not a participant in this deal.", status=403)
+    if deal.state != "completed":
+        return HttpResponse("The receipt is available once payment is complete.", status=400)
+
+    tracker = DeliveryTracking.objects.filter(deal=deal).first()
+    method = tracker.delivery_method if tracker else ""
+    return render(request, "deal_receipt.html", {
+        "deal": deal,
+        "tracker": tracker,
+        "receipt_no": f"ASX-{deal.pk:06d}",
+        "issued": now(),
+        "closed": bool(tracker and tracker.stage == "payment_released"),
+        "method_label": _METHODS.get(method, "Not chosen yet"),
+        "payment_label": _METHOD_LABELS.get(deal.payment_method, deal.payment_method) or "—",
     })
 
 

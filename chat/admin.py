@@ -24,6 +24,8 @@ from .models import (
     DeliveryTracking,
     SellerRating,
     ListingBump,
+    StatusMedia,         # ← NEW
+    PushSubscription,    # ← NEW
 )
 
 
@@ -285,6 +287,19 @@ class StatusCategoryAdmin(admin.ModelAdmin):
     ad_count.short_description = 'Total Ads'
 
 
+class StatusMediaInline(admin.TabularInline):
+    """Inline admin for multi‑image StatusMedia rows within a UserStatus."""
+    model = StatusMedia
+    extra = 0
+    fields = ('order', 'file', 'media_preview')
+    readonly_fields = ('media_preview',)
+    ordering = ('order', 'id')
+
+    def media_preview(self, obj):
+        return render_media_preview(_media_url(obj.file), max_size=80)
+    media_preview.short_description = 'Preview'
+
+
 @admin.register(UserStatus)
 class UserStatusAdmin(admin.ModelAdmin):
     """Admin for user statuses."""
@@ -300,6 +315,7 @@ class UserStatusAdmin(admin.ModelAdmin):
     raw_id_fields = ('user', 'category')
     date_hierarchy = 'created_at'
     readonly_fields = ('created_at', 'media_preview')
+    inlines = [StatusMediaInline]   # ← NEW
 
     fieldsets = (
         ('Status Info', {
@@ -332,6 +348,30 @@ class UserStatusAdmin(admin.ModelAdmin):
 
     def media_preview(self, obj):
         return render_media_preview(_media_url(obj.media))
+    media_preview.short_description = 'Media Preview'
+
+
+@admin.register(StatusMedia)
+class StatusMediaAdmin(admin.ModelAdmin):
+    """Admin for the extra images attached to a UserStatus (multi‑image)."""
+    list_display = ('id', 'status', 'order', 'media_preview')
+    list_filter = ('status__category',)
+    search_fields = ('status__caption', 'status__user__username')
+    raw_id_fields = ('status',)
+    ordering = ('status', 'order', 'id')
+    readonly_fields = ('media_preview',)
+
+    fieldsets = (
+        ('Parent Status', {
+            'fields': ('status',)
+        }),
+        ('Media', {
+            'fields': ('file', 'order', 'media_preview')
+        }),
+    )
+
+    def media_preview(self, obj):
+        return render_media_preview(_media_url(obj.file))
     media_preview.short_description = 'Media Preview'
 
 
@@ -430,7 +470,7 @@ class EventStatusShareAdmin(admin.ModelAdmin):
 @admin.register(Offer)
 class OfferAdmin(admin.ModelAdmin):
     """Admin for negotiation offers on commercial statuses."""
-    list_display = ('id', 'status', 'buyer', 'seller', 'proposed_by', 'amount', 'state', 'created_at')
+    list_display = ('id', 'status', 'buyer', 'seller', 'proposed_by', 'note', 'amount', 'state', 'created_at')
     list_filter = ('state', 'created_at')
     search_fields = ('status__caption', 'buyer__username', 'seller__username', 'proposed_by__username')
     raw_id_fields = ('status', 'buyer', 'seller', 'proposed_by', 'parent_offer')
@@ -444,8 +484,10 @@ class OfferAdmin(admin.ModelAdmin):
         ('Parties', {
             'fields': ('buyer', 'seller', 'proposed_by')
         }),
+        # FIX: 'note' was missing from fieldsets even though it appears in
+        # list_display — this made the bargain note un-editable via admin.
         ('Offer Details', {
-            'fields': ('amount', 'state', 'parent_offer')
+            'fields': ('amount', 'state', 'parent_offer', 'note')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'responded_at')
@@ -549,3 +591,76 @@ class ListingBumpAdmin(admin.ModelAdmin):
     raw_id_fields = ('status', 'user')
     date_hierarchy = 'created_at'
     readonly_fields = ('created_at',)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEB PUSH ADMIN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    """
+    Admin for browser/device Web Push subscriptions.
+    Useful for debugging why a user isn't receiving notifications, and for
+    cleaning up stale endpoints (e.g. if a device was reset).
+    """
+    list_display = (
+        'id', 'user', 'endpoint_short', 'user_agent_short',
+        'created_at', 'last_seen_ok_at'
+    )
+    list_filter = ('created_at', 'last_seen_ok_at')
+    search_fields = ('user__username', 'endpoint', 'user_agent')
+    raw_id_fields = ('user',)
+    date_hierarchy = 'created_at'
+    readonly_fields = ('created_at', 'endpoint', 'p256dh', 'auth')
+
+    fieldsets = (
+        ('Owner', {
+            'fields': ('user',)
+        }),
+        ('Device Info', {
+            'fields': ('user_agent', 'last_seen_ok_at')
+        }),
+        ('Subscription Keys (read‑only)', {
+            'fields': ('endpoint', 'p256dh', 'auth'),
+            'classes': ('collapse',),
+            'description': 'Raw Web Push subscription data. Do not edit manually.'
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    actions = ['delete_stale_subscriptions']
+
+    def endpoint_short(self, obj):
+        if not obj.endpoint:
+            return '-'
+        # Show the domain + a short tail so admins can tell devices apart
+        # without dumping the full token-length URL into the list view.
+        head = obj.endpoint.split('/')[2] if '/' in obj.endpoint else obj.endpoint[:40]
+        tail = obj.endpoint[-16:]
+        return f"{head}/…/{tail}"
+    endpoint_short.short_description = 'Endpoint'
+
+    def user_agent_short(self, obj):
+        ua = obj.user_agent or ''
+        if len(ua) > 40:
+            return ua[:40] + '…'
+        return ua or '-'
+    user_agent_short.short_description = 'User Agent'
+
+    def delete_stale_subscriptions(self, request, queryset):
+        """
+        Remove subscriptions that have never successfully received a push
+        (last_seen_ok_at is null) and were created more than 30 days ago.
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(days=30)
+        stale = queryset.filter(last_seen_ok_at__isnull=True, created_at__lt=cutoff)
+        count = stale.count()
+        stale.delete()
+        self.message_user(request, f"Deleted {count} stale subscription(s).")
+    delete_stale_subscriptions.short_description = "Delete stale subscriptions (never used, >30 days old)"

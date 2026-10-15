@@ -291,6 +291,7 @@
   <div id="ua-add-contact"        class="ua-item"><i class="fas fa-user-plus"></i> Add Contact</div>
   <div id="ua-toggle-sound"       class="ua-item"><i class="fas fa-bell"></i> <span id="ua-sound-text">Mute Notifications</span></div>
   <div id="ua-partners-modal-btn" class="ua-item"><i class="fas fa-satellite-dish"></i> Partners</div>
+  <a id="ua-videos-btn" href="{% url 'video_page' %}" class="ua-item" data-videos-badge style="text-decoration:none;color:inherit;"><i class="fas fa-play-circle"></i> Videos</a>
   <div id="ua-settings"           class="ua-item"><i class="fas fa-cog"></i> Settings</div>
   <div class="ua-item" style="height:1px;background:var(--border);padding:0;margin:2px 0;"></div>
   <div id="ua-clear"              class="ua-item"><i class="fas fa-trash-alt"></i> Clear Chat</div>
@@ -427,5 +428,9 @@
      the same way but merges instead of overwriting, with the variable
      that's actually wired up. -->
   {% include 'partials/pwa_scripts.html' %}
+
+
+<script src="{% static 'chat/asterix_videos/videos_badge.js' %}" defer></script>
+<script src="{% static 'chat/logout_csrf.js' %}" defer></script>
 </body>
 </html>

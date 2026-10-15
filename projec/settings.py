@@ -64,7 +64,7 @@ INSTALLED_APPS = [
     'encrypted_model_fields',
     'cloudinary',           # Cloudinary core SDK
    # 'cloudinary_storage',   # django-cloudinary-storage (for Admin thumbnails)
-    'chat',                 # your app
+    'chat',                 #
 ]
 
 #ASGI_APPLICATION = 'projec.asgi.application'
@@ -74,10 +74,35 @@ INSTALLED_APPS = [
   #      "BACKEND": "channels.layers.InMemoryChannelLayer",
   #  }
 #}
+ASTERIX_MESSAGE_MODEL = "chat.Message"
 
 LOGIN_URL            = "login-user"
 LOGIN_REDIRECT_URL   = "chat-page"
 LOGOUT_REDIRECT_URL  = "login-user"
+
+# ── SECURITY HARDENING (logout CSRF fix) ──────────────────────────────
+# Django 4.2+ requires CSRF_TRUSTED_ORIGINS to be set explicitly when the
+# site is behind a proxy (which PythonAnywhere always is). Without this,
+# the logout POST gets rejected with "CSRF token from POST incorrect".
+import os as _os
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://fizzme.pythonanywhere.com',
+    'https://*.pythonanywhere.com',
+]
+# If you use a custom domain, add it here too:
+# CSRF_TRUSTED_ORIGINS.append('https://yourdomain.com')
+
+# Only enforce secure cookies when we're actually on HTTPS.
+# On PythonAnywhere DEBUG=False, so these turn on — correct.
+CSRF_COOKIE_SECURE    = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_HTTPONLY  = False   # JS must read csrftoken from cookie (api.js does)
+CSRF_COOKIE_SAMESITE  = 'Lax'
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_NAME      = 'csrftoken'   # explicit — JS reads this by name
+CSRF_USE_SESSIONS     = False         # keep token in cookie, not session
+# ──────────────────────────────────────────────────────────────────────
 
 # Custom user model
 AUTH_USER_MODEL = 'chat.CustomUser'

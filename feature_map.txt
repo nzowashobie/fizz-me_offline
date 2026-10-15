@@ -1,0 +1,224 @@
+== 1. clear chat and side panel ==
+static/js/modules/ui.js:204:  function clearChat() {
+static/js/modules/ui.js:205:    console.log('[ui] clearChat called');
+static/js/modules/ui.js:206:    if (window.Asterix && window.Asterix.chat && typeof window.Asterix.chat.clearChat === 'function') {
+static/js/modules/ui.js:207:      window.Asterix.chat.clearChat();
+static/js/modules/ui.js:209:      console.warn('[ui] chat.clearChat not available, cannot clear chat.');
+static/js/modules/ui.js:572:      'ua-clear': clearChat,
+static/js/modules/ui.js:691:    clearChat: clearChat,
+static/js/modules/chat.js:1124:  function clearChat() {
+static/js/modules/chat.js:1145:      clearDB.then(function() { return API.clearChat(recipient); })
+static/js/modules/chat.js:1281:    clearChat: clearChat,
+static/js/app.js:81:  function clearChat(recipient) {
+static/js/app.js:174:    clearChat: clearChat,
+static/js/core/api.js:88:    clearChat: function(recipientId, permanent) {
+templates/ind.html:462:#contact-info-panel {
+templates/ind.html:467:#contact-info-panel.open { display: block; }
+templates/ind.html:468:#contact-info-panel .cip-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--sub); font-size: 22px; cursor: pointer; }
+templates/ind.html:469:#cip-avatar { width: 140px; height: 140px; border-radius: 50%; object-fit: cover; cursor: zoom-in; margin: 6px auto 14px; display: block; }
+templates/ind.html:470:#cip-username { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+templates/ind.html:471:#cip-phone { font-size: 14px; color: var(--sub); display: flex; align-items: center; justify-content: center; gap: 8px; }
+templates/ind.html:1020:  <div class="ua-item" id="ua-clear"><i class="fas fa-broom"></i> Clear Chat</div>
+templates/ind.html:1347:<div id="contact-info-panel">
+templates/ind.html:1348:  <button class="cip-close" id="close-contact-info" aria-label="Close contact info">&times;</button>
+templates/ind.html:1349:  <img id="cip-avatar" src="" alt="Contact photo">
+templates/ind.html:1350:  <div id="cip-username"></div>
+templates/ind.html:1351:  <div id="cip-phone"><i class="fas fa-phone"></i> <span id="cip-phone-text"></span></div>
+templates/ind.html:1600:    document.getElementById('cip-avatar').src = d.profile_picture || '{% static "images/default_profile_picture.webp" %}';
+templates/ind.html:1601:    document.getElementById('cip-username').textContent = d.username;
+templates/ind.html:1602:    document.getElementById('cip-phone-text').textContent = d.phone_number || 'Not available';
+templates/ind.html:1604:    document.getElementById('contact-info-panel').classList.add('open');
+templates/ind.html:1609:  document.getElementById('contact-info-panel').classList.remove('open');
+templates/ind.html:1613:document.getElementById('cip-avatar').onclick = function() { openZoom('image', document.getElementById('cip-avatar').src); };
+templates/ind.html:2315:document.getElementById('ua-clear').onclick = async function() {
+templates/index.html:277:<div id="contact-info-panel">
+templates/index.html:278:  <button class="cip-close" id="close-contact-info" aria-label="Close contact info">&times;</button>
+templates/index.html:279:  <img id="cip-avatar" src="" alt="Contact photo">
+templates/index.html:280:  <div id="cip-username"></div>
+templates/index.html:281:  <div id="cip-phone"><i class="fas fa-phone"></i> <span id="cip-phone-text"></span></div>
+templates/index.html:297:  <div id="ua-clear"              class="ua-item"><i class="fas fa-trash-alt"></i> Clear Chat</div>
+chat/views/__init__.py:29:    clear_chat,
+chat/views/__init__.py:123:    "get_conversation_previews", "delete_message", "clear_chat",
+chat/views/views_messages.py:5:  get_conversation_previews, delete_message, clear_chat.
+chat/views/views_messages.py:602:def clear_chat(request):
+602:def clear_chat(request):
+603-    if request.method != "POST":
+604-        return JsonResponse({"error": "Method not allowed."}, status=405)
+605-    try:
+606-        data = json.loads(request.body)
+607-    except (json.JSONDecodeError, ValueError):
+608-        return JsonResponse({"error": "Invalid JSON."}, status=400)
+609-
+610-    recipient_username = data.get("recipient_id", "").strip()
+611-    if not recipient_username:
+612-        return JsonResponse({"error": "recipient_id is required."}, status=400)
+613-
+614-    try:
+615-        recipient = CustomUser.objects.get(username=recipient_username)
+616-    except CustomUser.DoesNotExist:
+617-        return JsonResponse({"error": "Recipient not found."}, status=404)
+618-
+619-    Message.objects.filter(sender=request.user, recipient=recipient).update(cleared_by_sender=True)
+620-    Message.objects.filter(sender=recipient, recipient=request.user).update(cleared_by_recipient=True)
+621-
+622-    return JsonResponse({"message": "Chat cleared."})
+== 2. offer card, notes, counter chain ==
+17://    final price, collection point, payment method.
+110:      '.fz-neg-note{width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);',
+114:      '.fz-neg-note:focus{border-color:rgba(230,168,23,.4);}',
+115:      '.fz-neg-note::placeholder{color:rgba(255,255,255,.3);}',
+200:      /* Note block */
+201:      '.fz-txn-note{font-size:11px;color:rgba(255,255,255,.5);font-style:italic;',
+359:    _addMeta(meta, 'Proposed by', offer.proposed_by);
+361:    if (rs && rs.collection_point) {
+362:      _addMeta(meta, 'Collection', rs.collection_point);
+366:    // Note (buyer's message to seller)
+367:    var note = offer.note || '';
+368:    if (note) {
+369:      var noteEl = document.createElement('div');
+370:      noteEl.className = 'fz-txn-note';
+371:      noteEl.textContent = '\u201C' + note + '\u201D';
+372:      body.appendChild(noteEl);
+504:    if (deal.collection_point) _addMeta(meta, 'Collection', deal.collection_point);
+723:  function openBargainSheet(listingData, offerData, selectedMedia, mode, historyChain) {
+780:    if (historyChain && historyChain.length) {
+787:      historyChain.forEach(function (o) {
+845:    var noteEl = document.createElement('textarea');
+846:    noteEl.className = 'fz-neg-note';
+847:    noteEl.placeholder = '💬 Add a note… e.g. "Last price, Ba Seller!"';
+848:    noteEl.maxLength = 200;
+849:    container.appendChild(noteEl);
+863:      var note = noteEl.value.trim();
+868:        doSend = window.Asterix.deals.respondToOffer(existingOffer.id, 'counter', amt, { note: note });
+872:          { selectedMediaUrl: smUrl, note: note }
+921:    var noteEl = document.createElement('textarea');
+922:    noteEl.className = 'fz-neg-note';
+923:    noteEl.placeholder = '💬 Add a note to your response (optional)…';
+924:    noteEl.maxLength = 200;
+925:    container.appendChild(noteEl);
+951:      window.Asterix.deals.respondToOffer(offer.id, 'accept', null, { note: noteEl.value.trim() })
+969:      window.Asterix.deals.respondToOffer(offer.id, 'counter', amt, { note: noteEl.value.trim() })
+980:      window.Asterix.deals.respondToOffer(offer.id, 'decline', null, { note: noteEl.value.trim() })
+1094:    return { status_id: status.status_id || status.id, caption: status.caption || '', price: status.price, is_negotiable: status.is_negotiable, availability: status.availability, media_url: status.media_url || '', username: status.username || '', is_commercial: status.is_commercial, collection_point: status.collection_point || '' };
+1102:    var photoNote = selectedMedia ? '\n> 📸 Photo ' + (selectedMedia.index + 1) + ' of ' + selectedMedia.total : '';
+1103:    var messageText = quoteLine + photoNote + "\n\nHi, I'm interested in your listing. Can you tell me more?";
+1132:  function openCounterFromCard(rs, offer, historyChain) {
+1134:    openBargainSheet(rs, offer, null, mode, historyChain);
+12://   NOTE     offer.note rendered right below the meta grid.
+37:        note:               options.note || '',
+43:      var payload = { offer_id: offerId, action: action, note: options.note || '' };
+141:      '.fz-neg-note{width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 12px;color:var(--text,#fff);font-size:13px;resize:none;outline:none;min-height:52px;font-family:inherit;}',
+185:      '.fz-txn-note{font-size:12px;color:rgba(255,255,255,.7);font-style:italic;margin-bottom:8px;padding:8px 10px;background:rgba(230,168,23,.06);border-left:3px solid rgba(230,168,23,.5);border-radius:0 8px 8px 0;white-space:pre-wrap;word-break:break-word;}',
+370:    // ── NOTE ──
+371:    var noteText = (offer.note || '').trim();
+372:    if (noteText) {
+373:      var noteEl = document.createElement('div');
+374:      noteEl.className = 'fz-txn-note';
+375:      noteEl.textContent = '\u201C' + noteText + '\u201D';
+376:      body.appendChild(noteEl);
+681:  function openBargainSheet(listingData, offerData, selectedMedia, mode, historyChain) {
+717:    if (historyChain && historyChain.length) {
+723:      historyChain.forEach(function (o) {
+765:    var noteEl = document.createElement('textarea');
+766:    noteEl.className = 'fz-neg-note';
+767:    noteEl.placeholder = '💬 Add a note… e.g. "Last price, Ba Seller!"';
+768:    noteEl.maxLength = 200;
+769:    container.appendChild(noteEl);
+779:      var note = noteEl.value.trim();
+782:        ? window.Asterix.deals.respondToOffer(existingOffer.id, 'counter', amt, { note: note })
+783:        : window.Asterix.deals.createOffer(listing.status_id || listing.id, amt, { selectedMediaUrl: smUrl, note: note });
+822:    if (offer.note) {
+823:      var nEl = document.createElement('div'); nEl.className = 'fz-txn-note';
+824:      nEl.textContent = '\u201C' + offer.note + '\u201D';
+828:    var noteEl = document.createElement('textarea');
+829:    noteEl.className = 'fz-neg-note';
+830:    noteEl.placeholder = '💬 Add a note to your response (optional)…';
+831:    noteEl.maxLength = 200;
+832:    container.appendChild(noteEl);
+853:      window.Asterix.deals.respondToOffer(offer.id, 'accept', null, { note: noteEl.value.trim() })
+869:      window.Asterix.deals.respondToOffer(offer.id, 'counter', amt, { note: noteEl.value.trim() })
+879:      window.Asterix.deals.respondToOffer(offer.id, 'decline', null, { note: noteEl.value.trim() })
+1010:    var photoNote = selectedMedia ? '\n> 📸 Photo ' + (selectedMedia.index + 1) + ' of ' + selectedMedia.total : '';
+1011:    var messageText = quoteLine + photoNote + "\n\nHi, I'm interested in your listing. Can you tell me more?";
+1040:  function openCounterFromCard(rs, offer, historyChain) {
+1042:    openBargainSheet(rs, offer, null, mode, historyChain);
+== 3. payment and checkout ==
+static/js/modules/negotiate.js:53:        payment_method:        paymentMethod    || '',
+static/js/modules/negotiate.js:65:        payment_method:  paymentMethod  || '',
+static/js/modules/negotiate.js:66:        payment_account: paymentAccount || '',
+static/js/modules/negotiate.js:277:  function _routeBuyerToCheckout(res, sellerUsername) {
+static/js/modules/negotiate.js:279:    if (!(window.Asterix && window.Asterix.checkout)) return;
+static/js/modules/negotiate.js:286:      window.Asterix.checkout.openPaymentForDeal(
+static/js/modules/negotiate.js:297:    if (!(window.Asterix && window.Asterix.checkout)) return;
+static/js/modules/negotiate.js:306:      window.Asterix.checkout.openPaymentForDeal(
+static/js/modules/negotiate.js:436:            _routeBuyerToCheckout(res, sellerUsername);
+static/js/modules/negotiate.js:498:    if (deal.payment_method) _addMeta(meta, 'Payment', deal.payment_method.replace(/_/g, ' '));
+static/js/modules/negotiate.js:542:              if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/negotiate.js:543:                window.Asterix.checkout.openPaymentForDeal(
+static/js/modules/negotiate.js:551:                if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/negotiate.js:552:                  window.Asterix.checkout.openPaymentForDeal(
+static/js/modules/negotiate.js:579:            if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/negotiate.js:580:              window.Asterix.checkout.openPaymentForDeal(deal.id, deal.final_price, myName, sellerUsername, function () { refreshThread(); });
+static/js/modules/negotiate.js:590:        if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/negotiate.js:591:          window.Asterix.checkout.openPaymentForDeal(deal.id, deal.final_price, myName, sellerUsername, function () { refreshThread(); });
+static/js/modules/negotiate.js:803:        if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/negotiate.js:804:          window.Asterix.checkout.open(listing, selectedMedia, function () { refreshThread(); });
+static/js/modules/negotiate.js:857:          _routeBuyerToCheckout(res, sellerUsername);
+static/js/modules/negotiate.js:967:      if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/negotiate.js:968:        window.Asterix.checkout.open(_statusToListing(status), selectedMedia, function () {});
+static/js/modules/checkout.js:4:// FIX: openDealConfirm added as a public alias for
+static/js/modules/checkout.js:5://      openPaymentForDeal so any cached caller never throws.
+static/js/modules/checkout.js:6://      The real fix lives in negotiate.js (_routeBuyerToCheckout)
+static/js/modules/checkout.js:1037:  function openPaymentForDeal(dealId, amount, buyer, seller, onDone) {
+static/js/modules/checkout.js:1048:  window.Asterix.checkout = {
+static/js/modules/checkout.js:1051:    openPaymentForDeal: openPaymentForDeal,
+static/js/modules/checkout.js:1053:    openDealConfirm:    openPaymentForDeal,
+static/js/modules/checkout.js:1061:      window.Asterix.payment = { open: openPaymentForDeal, close: _closeOverlay };
+static/js/modules/checkout.js:1064:        openPaymentForDeal(dealId, amount, buyer, seller, cb);
+static/js/modules/checkout.js:1075:  console.log('[Fizzme] checkout.js loaded — FIX: openDealConfirm alias added to public API');
+static/js/modules/deals.js:413:            if (res.deal_id && window.Asterix && window.Asterix.checkout) {
+static/js/modules/deals.js:415:                window.Asterix.checkout.openDealConfirm(res.deal_id, res.final_price);
+static/js/modules/deals.js:503:    if (deal.payment_method) _addMeta(meta, 'Payment', deal.payment_method.replace(/_/g, ' '));
+static/js/modules/deals.js:561:        } else if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/deals.js:562:          window.Asterix.checkout.openDealConfirm(deal.id, deal.final_price);
+static/js/modules/deals.js:899:        if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/deals.js:900:          window.Asterix.checkout.open(listing, selectedMedia, function () { refreshThread(); });
+static/js/modules/deals.js:954:          if (res.deal_id && window.Asterix && window.Asterix.checkout) {
+static/js/modules/deals.js:955:            setTimeout(function () { window.Asterix.checkout.openDealConfirm(res.deal_id, res.final_price); }, 800);
+static/js/modules/deals.js:1066:      if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/deals.js:1067:        window.Asterix.checkout.open(_statusToListing(status), selectedMedia, function () {});
+static/js/modules/cart.js:321:      if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/cart.js:333:        window.Asterix.checkout.openMulti(statuses, function(step) {
+static/js/modules/chat.js:215:  function openPaymentModal(dealId, amount, buyer, seller) {
+static/js/modules/chat.js:708:          if (window.Asterix && window.Asterix.checkout) {
+static/js/modules/chat.js:710:            window.Asterix.checkout.open(rs, sel, function() { refreshThread(); });
+chat/views/negotiate_views.py:92:        'payment_method':   deal.payment_method or '',
+chat/views/negotiate_views.py:477:    payment_method     = body.get('payment_method', '')
+chat/views/negotiate_views.py:496:            payment_method=payment_method or '',
+chat/views/negotiate_views.py:513:    text = f"🛒 Purchase request — K{deal.final_price:,.2f} via {payment_method}."
+chat/views/negotiate_views.py:593:    payment_method  = (body.get('payment_method')  or '').strip()[:100]
+chat/views/negotiate_views.py:594:    payment_account = (body.get('payment_account') or '').strip()[:200]
+chat/views/negotiate_views.py:607:            ('payment_method',  payment_method),
+chat/views/negotiate_views.py:608:            ('payment_account', payment_account),
+chat/views/negotiate_views.py:623:        f"Method: {payment_method or 'not specified'}"
+chat/views/views_messages.py:91:            'payment_method':   deal.payment_method or '',
+chat/views/helpers.py:283:                "payment_method":       deal.payment_method or '',
+chat/views/helpers.py:286:                "payment_account":      deal.payment_account or '',
+chat/views/helpers.py:287:                "payment_reference":    deal.payment_reference or '',
+chat/views/views_commerce.py:516:        payment_method         str
+chat/views/views_commerce.py:557:            payment_method=data.get('payment_method', '').strip(),
+chat/views/views_commerce.py:681:        "payment_method": str,
+chat/views/views_commerce.py:682:        "payment_account": str,
+chat/views/views_commerce.py:683:        "payment_reference": str
+chat/views/views_commerce.py:692:    payment_method    = data.get('payment_method', '').strip()
+chat/views/views_commerce.py:693:    payment_account   = data.get('payment_account', '').strip()
+chat/views/views_commerce.py:694:    payment_reference = data.get('payment_reference', '').strip()
+chat/views/views_commerce.py:698:    if not payment_method:
+chat/views/views_commerce.py:699:        return JsonResponse({'error': 'payment_method is required'}, status=400)
+chat/views/views_commerce.py:718:        deal.payment_method    = payment_method
+chat/views/views_commerce.py:719:        deal.payment_account   = payment_account
+chat/views/views_commerce.py:720:        deal.payment_reference = payment_reference
+chat/views/views_commerce.py:728:        method_label = _METHOD_LABELS.get(payment_method, payment_method)
+chat/views/views_commerce.py:731:        if payment_account:   note_parts.append(f'Account: {payment_account}')
+chat/views/views_commerce.py:732:        if payment_reference: note_parts.append(f'Ref: {payment_reference}')
+chat/views/views_commerce.py:748:            'payment_method': deal.payment_method,

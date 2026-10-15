@@ -276,6 +276,7 @@ class Deal(models.Model):
     # ── NEW: payment account & reference ────────────────────────────────
     payment_account   = models.CharField(max_length=100, blank=True)
     payment_reference = models.CharField(max_length=100, blank=True)
+    payment_instructions = models.TextField(blank=True, default='')
 
     state = models.CharField(max_length=25, choices=DEAL_STATE_CHOICES, default='pending_confirmation')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -303,6 +304,7 @@ DELIVERY_STAGE_CHOICES = [
 
 
 class DeliveryTracking(models.Model):
+    delivery_method = models.CharField(max_length=20, blank=True, default='')
     """
     One row per deal — tracks where in the fulfilment process it is.
     Created automatically when a deal transitions to 'completed'.
@@ -519,3 +521,38 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f"Push sub for {self.user.username} ({self.endpoint[:40]}…)"
+
+######online videos
+
+
+
+class VideoEmbed(models.Model):
+    message = models.ForeignKey(
+        settings.ASTERIX_MESSAGE_MODEL,
+        on_delete=models.CASCADE,   # deleting a message also removes its video rows
+        related_name="+",
+    )
+    provider = models.CharField(max_length=20)
+    source_url = models.URLField(max_length=500)
+    embed_url = models.URLField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+
+# ----- Videos pasted on the Videos page -----
+class SharedVideo(models.Model):
+    user = models.ForeignKey(
+        "CustomUser",
+        on_delete=models.CASCADE,
+        related_name="shared_videos",
+    )
+    provider = models.CharField(max_length=20)
+    source_url = models.URLField(max_length=500)
+    embed_url = models.URLField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-id"]

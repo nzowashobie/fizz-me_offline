@@ -1,0 +1,46 @@
+== where the text is written ==
+chat/views/negotiate_views.py:364:        text = f"🔄 Counter offer: K{amount:,.2f}" + (f' — "{note}"' if note else '')
+chat/patch_offer_response.py:140:            text=f"{card}\n\n🔄 Counter offer: {_fmt_price(counter_decimal)}{note_line}",
+static/js/modules/negotiate.js:234:      /Offer:\s*K[\d,]/, /Counter offer:\s*K[\d,]/,
+== is the v2 patch in place? ==
+320:            f"🔄 {who_label} countered: {_fmt_price(counter_decimal)}\n"
+327:            offer=counter_offer, status=locked_status,
+== URL the Counter button calls ==
+41:    respondToOffer: function (offerId, action, amount, options) {
+42-      options = options || {};
+43-      var payload = { offer_id: offerId, action: action, note: options.note || '' };
+44-      if (action === 'counter' && amount !== undefined) payload.amount = amount;
+45-      return _apiPost('/api/offers/respond/', payload);
+46-    },
+47-    withdrawOffer: function (offerId) {
+--
+432:        window.Asterix.deals.respondToOffer(offer.id, 'accept')
+433-          .then(function (res) {
+434-            toast('Deal agreed! 🎉', fmtK(offer.amount));
+435-            refreshThread();
+436-            _routeBuyerToCheckout(res, sellerUsername);
+437-          })
+438-          .catch(function (err) { _enableAll(bw2); toast('Error', err.message || ''); });
+--
+449:        window.Asterix.deals.respondToOffer(offer.id, 'decline')
+450-          .then(function () { toast('Offer declined', ''); refreshThread(); })
+451-          .catch(function (err) { _enableAll(bw2); toast('Error', err.message || ''); });
+452-      });
+== negotiate_chat counter handling ==
+686:def negotiate_chat(request):
+687-    import json
+688-    try:
+689-        body = json.loads(request.body)
+690-    except Exception:
+691-        body = request.POST
+11:#   COUNTER  respond_to_offer's counter branch carries the
+12:#            parent offer's enquiry forward to the new counter
+278:# 2. RESPOND TO OFFER — accept / counter / decline
+336:    if action == 'counter':
+344:        offer.state        = 'countered'
+695:    counter_amt = body.get('counter_amount')
+705:    if counter_amt:
+707:            counter_amt = float(counter_amt)
+708:            if counter_amt <= 0:
+711:            return JsonResponse({'status': 'error', 'error': 'Invalid counter amount.'}, status=400)
+712:        message_txt = f"🔄 Counter: K{counter_amt:,.2f}" + (f"  —  {message_txt}" if message_txt else '')

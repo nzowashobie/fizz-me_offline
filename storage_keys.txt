@@ -1,0 +1,4 @@
+static/js/modules/cart.js:22:  var CART_STORAGE_KEY = 'asterix_cart';
+static/js/modules/sync.js:8:  var DB_NAME = 'AsterixMessages';
+static/js/modules/sync.js:30:      var request = indexedDB.open(DB_NAME, DB_VERSION);
+static/js/core/state.js:26:    try { return JSON.parse(localStorage.getItem('asterix_offline_queue')) || []; }

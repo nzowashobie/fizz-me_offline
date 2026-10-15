@@ -363,12 +363,37 @@
     }
     body.appendChild(meta);
 
-    // Note (buyer's message to seller)
-    var note = offer.note || '';
-    if (note) {
+    // Bargaining history: every offer in this chain with the note that came with it
+    var chain = offer.history || [];
+    if (chain.length > 1) {
+      var hist = document.createElement('div');
+      hist.className = 'fz-txn-history';
+      hist.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);';
+      var histTitle = document.createElement('div');
+      histTitle.style.cssText = 'font-size:11px;font-weight:700;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;';
+      histTitle.textContent = 'Bargaining so far';
+      hist.appendChild(histTitle);
+      chain.forEach(function (h, i) {
+        var row = document.createElement('div');
+        row.style.cssText = 'margin-bottom:8px;';
+        var line = document.createElement('div');
+        var isCurrent = h.id === offer.id;
+        line.style.cssText = 'font-size:12px;font-weight:' + (isCurrent ? '700' : '500') + ';color:' + (isCurrent ? '#e6a817' : 'rgba(255,255,255,.75)') + ';';
+        line.textContent = (i + 1) + '. ' + h.proposed_by + ' · ' + fmtK(h.amount) + ' · ' + _stateLabel(h.state) + ' · ' + _fmtDate(h.created_at);
+        row.appendChild(line);
+        if (h.note) {
+          var hNote = document.createElement('div');
+          hNote.className = 'fz-txn-note';
+          hNote.textContent = '\u201C' + h.note + '\u201D';
+          row.appendChild(hNote);
+        }
+        hist.appendChild(row);
+      });
+      body.appendChild(hist);
+    } else if (offer.note) {
       var noteEl = document.createElement('div');
       noteEl.className = 'fz-txn-note';
-      noteEl.textContent = '\u201C' + note + '\u201D';
+      noteEl.textContent = '\u201C' + offer.note + '\u201D';
       body.appendChild(noteEl);
     }
 
@@ -410,11 +435,7 @@
           .then(function (res) {
             toast('Deal agreed! 🎉', fmtK(offer.amount));
             refreshThread();
-            if (res.deal_id && window.Asterix && window.Asterix.checkout) {
-              setTimeout(function () {
-                window.Asterix.checkout.openDealConfirm(res.deal_id, res.final_price);
-              }, 800);
-            }
+            /* Payment opens from the deal card's Pay button, not on accept. */
           })
           .catch(function (err) { _enableAll(btnWrap2); toast('Error', err.message || ''); });
       });
@@ -550,6 +571,22 @@
         waitEl.textContent = '✓ You confirmed — waiting for the other party…';
         btnWrap.appendChild(waitEl);
       }
+    }
+
+    // Seller shares how the buyer should pay (confirmed state, seller side)
+    if (deal.state === 'confirmed' && isSeller) {
+      var setupBtn = _txnBtn(
+        deal.payment_method ? '💳 Edit payment details' : '💳 Add payment details',
+        'setup',
+        function () {
+          if (window.Asterix && window.Asterix.checkout && window.Asterix.checkout.openSellerPaymentSetup) {
+            window.Asterix.checkout.openSellerPaymentSetup(deal.id, deal.final_price, _displayName(deal.buyer));
+          } else {
+            toast('Error', 'Payment setup is not available yet. Reload the page.');
+          }
+        }
+      );
+      btnWrap.appendChild(setupBtn);
     }
 
     // Pay button (confirmed state, buyer side)
@@ -951,9 +988,7 @@
       window.Asterix.deals.respondToOffer(offer.id, 'accept', null, { note: noteEl.value.trim() })
         .then(function (res) {
           toast('Deal agreed! 🎉', fmtK(offer.amount)); _closeSheet(); refreshThread();
-          if (res.deal_id && window.Asterix && window.Asterix.checkout) {
-            setTimeout(function () { window.Asterix.checkout.openDealConfirm(res.deal_id, res.final_price); }, 800);
-          }
+          /* Payment opens from the deal card's Pay button, not on accept. */
         })
         .catch(function (err) { _enableAll(btnRow); acceptBtn.textContent = '✅ Accept  ' + fmtK(offer.amount); toast('Error', (err && err.message) || ''); });
     };

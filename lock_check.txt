@@ -1,0 +1,3 @@
+253:        locked_status = UserStatus.objects.select_for_update().get(pk=status.pk)
+458:        locked_status = UserStatus.objects.select_for_update().get(pk=status.pk)
+802:        locked_status = UserStatus.objects.select_for_update().get(pk=deal.status_id)

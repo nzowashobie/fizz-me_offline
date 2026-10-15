@@ -207,150 +207,130 @@ def create_offer(request):
 def respond_to_offer(request):
     """
     The non-proposing party responds: accept / decline / counter.
-    All paths include the listing card so every turn is self-contained.
 
-    POST body:
+    POST JSON body:
         offer_id   int
         action     'accept' | 'decline' | 'counter'
-        amount     decimal  (required for 'counter')
-        note       str      (optional, max 200 chars)
+        amount     decimal (required for 'counter')
+        note       str     (optional, max 200 chars)
     """
     try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
+        data = json.loads(request.body or b"{}")
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if not isinstance(data, dict):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    offer_id       = data.get('offer_id')
-    action         = data.get('action')
-    counter_amount = data.get('amount')
-    note           = (data.get('note') or '').strip()[:200]
+    offer_id = data.get("offer_id")
+    action = data.get("action")
+    counter_amount = data.get("amount")
+    note = (data.get("note") or "").strip()[:200]
 
-    if not offer_id or not action:
-        return JsonResponse({"error": "offer_id and action required"}, status=400)
+    if not offer_id or action not in ("accept", "decline", "counter"):
+        return JsonResponse({"error": "offer_id and a valid action are required"}, status=400)
 
     try:
-        offer = Offer.objects.select_related(
-            'status', 'buyer', 'seller', 'proposed_by'
-        ).get(id=offer_id)
+        offer = Offer.objects.select_related("status", "buyer", "seller", "proposed_by").get(id=offer_id)
     except Offer.DoesNotExist:
         return JsonResponse({"error": "Offer not found"}, status=404)
 
-    if offer.state != 'pending':
+    if request.user.id not in (offer.buyer_id, offer.seller_id):
+        return JsonResponse({"error": "You are not part of this offer."}, status=403)
+    if offer.proposed_by_id == request.user.id:
+        return JsonResponse({"error": "You cannot respond to your own offer."}, status=403)
+    if offer.state != "pending":
         return JsonResponse(
             {"error": f"Offer is already {offer.state}. Only pending offers can be acted upon."},
             status=400,
         )
 
-    if action in ('accept', 'decline', 'counter') and offer.proposed_by == request.user:
-        return JsonResponse({"error": "You cannot respond to your own offer."}, status=403)
+    counter_decimal = None
+    if action == "counter":
+        if not counter_amount:
+            return JsonResponse({"error": "amount required for counter"}, status=400)
+        try:
+            counter_decimal = Decimal(str(counter_amount))
+        except Exception:
+            return JsonResponse({"error": "Invalid amount"}, status=400)
+        if not counter_decimal.is_finite() or counter_decimal <= 0:
+            return JsonResponse({"error": "Amount must be positive"}, status=400)
 
-    status = offer.status
-    card   = _listing_card_text(status)
-    note_line = f'\n\n💬 "{note}"' if note else ''
+    responder_is_buyer = request.user.id == offer.buyer_id
+    other = offer.seller if responder_is_buyer else offer.buyer
+    card = _listing_card_text(offer.status)
+    note_line = f'\n\n💬 "{note}"' if note else ""
 
     with transaction.atomic():
-        # Lock the status row to prevent a concurrent take_listing
-        locked_status = UserStatus.objects.select_for_update().get(pk=status.pk)
+        locked_status = UserStatus.objects.select_for_update().get(pk=offer.status_id)
 
-        if action == 'accept':
-            if locked_status.availability in ('sold', 'reserved'):
+        if action == "accept":
+            if locked_status.availability in ("sold", "reserved"):
                 return JsonResponse(
                     {"error": "This item was taken by another buyer while you were negotiating."},
                     status=409,
                 )
-
-            offer.state        = 'accepted'
+            offer.state = "accepted"
             offer.responded_at = now()
             offer.save()
-
             deal = Deal.objects.create(
                 status=locked_status, buyer=offer.buyer, seller=offer.seller,
                 offer=offer, final_price=offer.amount,
                 collection_point_snapshot=locked_status.collection_point,
                 buyer_confirmed=True, buyer_confirmed_at=now(),
                 seller_confirmed=True, seller_confirmed_at=now(),
-                state='confirmed',
+                state="confirmed",
             )
-            locked_status.availability = 'reserved'
-            locked_status.save(update_fields=['availability'])
-
-            accept_text = (
-                f'{card}\n\n'
-                f'✅ Deal agreed at {_fmt_price(offer.amount)}!{note_line}\n\n'
-                f'Proceed to checkout to finalise payment.'
-            )
-            # Notify buyer
+            locked_status.availability = "reserved"
+            locked_status.save(update_fields=["availability"])
             _create_system_msg(
-                sender=request.user, recipient=offer.buyer,
-                text=accept_text,
-                message_type='deal_confirmation',
-                deal=deal, status=locked_status,
+                sender=request.user, recipient=other,
+                text=(f"{card}\n\n✅ Deal agreed at {_fmt_price(offer.amount)}!{note_line}\n\n"
+                      "Proceed to checkout to finalise payment."),
+                message_type="deal_confirmation", deal=deal, status=locked_status,
             )
             return JsonResponse({
-                "status":   "success",
-                "deal_id":  deal.id,
+                "status": "success",
+                "deal_id": deal.id,
                 "final_price": str(deal.final_price),
             })
 
-        elif action == 'decline':
-            offer.state        = 'declined'
+        if action == "decline":
+            offer.state = "declined"
             offer.responded_at = now()
             offer.save()
-
-            decline_text = (
-                f'{card}\n\n'
-                f'❌ Offer of {_fmt_price(offer.amount)} declined.{note_line}'
-            )
             _create_system_msg(
-                sender=request.user, recipient=offer.buyer,
-                text=decline_text,
-                message_type='status_update', status=locked_status,
+                sender=request.user, recipient=other,
+                text=f"{card}\n\n❌ Offer of {_fmt_price(offer.amount)} declined.{note_line}",
+                message_type="status_update", status=locked_status,
             )
             return JsonResponse({"status": "success"})
 
-        elif action == 'counter':
-            if not counter_amount:
-                return JsonResponse({"error": "amount required for counter"}, status=400)
-            try:
-                counter_amount = Decimal(str(counter_amount))
-                if counter_amount <= 0:
-                    return JsonResponse({"error": "Amount must be positive"}, status=400)
-            except Exception:
-                return JsonResponse({"error": "Invalid amount"}, status=400)
-
-            offer.state        = 'countered'
-            offer.responded_at = now()
-            offer.save()
-
-            counter_offer = Offer.objects.create(
-                status=locked_status, buyer=offer.buyer, seller=offer.seller,
-                proposed_by=request.user, amount=counter_amount,
-                state='pending', parent_offer=offer,
-            )
-            counter_recipient = offer.buyer if request.user == offer.seller else offer.seller
-            is_seller         = (request.user == offer.seller)
-            who_label         = "Seller" if is_seller else "Buyer"
-
-            # Zambian bargaining flavour — the counter message reads naturally
-            counter_text = (
-                f'{card}\n\n'
-                f'🔄 {who_label} countered: {_fmt_price(counter_amount)}\n'
-                f'(your offer was {_fmt_price(offer.amount)}){note_line}'
-            )
-            _create_system_msg(
-                sender=request.user, recipient=counter_recipient,
-                text=counter_text,
-                message_type='offer',
-                offer=counter_offer, status=locked_status,
-            )
-            return JsonResponse({
-                "status":           "success",
-                "counter_offer_id": counter_offer.id,
-                "counter_amount":   str(counter_offer.amount),
-            })
-
-        else:
-            return JsonResponse({"error": "Invalid action. Use accept/decline/counter"}, status=400)
+        # action == "counter"
+        offer.state = "countered"
+        offer.responded_at = now()
+        offer.save()
+        counter_offer = Offer.objects.create(
+            status=locked_status, buyer=offer.buyer, seller=offer.seller,
+            proposed_by=request.user, amount=counter_decimal, note=note,
+            state="pending", parent_offer=offer,
+        )
+        who_label = "Buyer" if responder_is_buyer else "Seller"
+        counter_text = (
+            f"{card}\n\n"
+            f"🔄 {who_label} countered: {_fmt_price(counter_decimal)}\n"
+            f"(your offer was {_fmt_price(offer.amount)}){note_line}"
+        )
+        _create_system_msg(
+            sender=request.user, recipient=other,
+            text=counter_text,
+            message_type="offer",
+            offer=counter_offer, status=locked_status,
+        )
+        return JsonResponse({
+            "status": "success",
+            "counter_offer_id": counter_offer.id,
+            "counter_amount": str(counter_offer.amount),
+        })
 
 
 @csrf_exempt
@@ -815,3 +795,94 @@ def cancel_deal(request):
         )
 
     return JsonResponse({"status": "success"})
+
+
+# ─── Payment details: seller shares how to pay, buyer pays ───────────────
+
+def _payment_details_json(deal, me):
+    return {
+        "deal_id": deal.pk,
+        "state": deal.state,
+        "final_price": str(deal.final_price),
+        "buyer": deal.buyer.username,
+        "seller": deal.seller.username,
+        "role": "seller" if me == deal.seller else "buyer",
+        "payment_method": deal.payment_method or "",
+        "payment_account": deal.payment_account or "",
+        "payment_instructions": deal.payment_instructions or "",
+    }
+
+
+@login_required
+def payment_details(request):
+    """
+    GET  ?deal_id=N   payment details for a participant (includes their role)
+    POST {deal_id, payment_method, payment_account, payment_instructions}
+         seller only; deal must be confirmed
+    """
+    me = request.user
+
+    if request.method == "GET":
+        deal_id = request.GET.get("deal_id", "").strip()
+        if not deal_id.isdigit():
+            return JsonResponse({"error": "deal_id is required"}, status=400)
+        try:
+            deal = Deal.objects.select_related("buyer", "seller").get(pk=int(deal_id))
+        except Deal.DoesNotExist:
+            return JsonResponse({"error": "Deal not found"}, status=404)
+        if me not in (deal.buyer, deal.seller):
+            return JsonResponse({"error": "Not a participant in this deal"}, status=403)
+        return JsonResponse(_payment_details_json(deal, me))
+
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        data = json.loads(request.body or b"{}")
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    deal_id = data.get("deal_id")
+    method = str(data.get("payment_method") or "").strip()
+    account = str(data.get("payment_account") or "").strip()[:200]
+    instructions = str(data.get("payment_instructions") or "").strip()[:500]
+
+    if not deal_id:
+        return JsonResponse({"error": "deal_id is required"}, status=400)
+    if method not in _METHOD_LABELS:
+        return JsonResponse({"error": "Choose a valid payment method"}, status=400)
+    if method != "cash" and not account:
+        return JsonResponse({"error": "Enter the number or account details"}, status=400)
+
+    try:
+        deal = Deal.objects.select_related("buyer", "seller", "status").get(pk=deal_id)
+    except Deal.DoesNotExist:
+        return JsonResponse({"error": "Deal not found"}, status=404)
+    if me != deal.seller:
+        return JsonResponse({"error": "Only the seller can share payment details"}, status=403)
+    if deal.state != "confirmed":
+        return JsonResponse(
+            {"error": f"Deal must be confirmed first (currently: {deal.state})"}, status=400)
+
+    with transaction.atomic():
+        deal.payment_method = method
+        deal.payment_account = account
+        deal.payment_instructions = instructions
+        deal.save(update_fields=["payment_method", "payment_account", "payment_instructions"])
+
+        label = _METHOD_LABELS.get(method, method)
+        lines = [f"💳 {deal.seller.username} shared payment details: {label}"]
+        if account:
+            lines.append(f"Number / account: {account}")
+        if instructions:
+            lines.append(f"Instructions: {instructions}")
+        lines.append(f"Amount due: {_fmt_price(deal.final_price)}")
+        _create_system_msg(
+            sender=me, recipient=deal.buyer,
+            text=f"{_listing_card_text(deal.status)}\n\n" + "\n".join(lines),
+            message_type="status_update", deal=deal, status=deal.status,
+        )
+
+    return JsonResponse(_payment_details_json(deal, me))

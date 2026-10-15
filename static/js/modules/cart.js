@@ -11,6 +11,9 @@
 //   3. Floating button is appended to document.body (fixed
 //      position) so it survives conversation switches, since
 //      chat-header's innerHTML gets wiped on every loadMessages().
+//   4. [NEW] selectedMedia is preserved from status viewer through
+//      to cart storage and shown as the thumbnail in the cart modal.
+//      Priority: selectedMedia.url → _latest_reply_media → media_url.
 // ============================================================
 
 (function() {
@@ -52,13 +55,26 @@
     }
     if (isInCart(status.status_id)) return true; // already there — no-op, not an error
 
+    // ── FIX 4: resolve the best thumbnail URL at add-time and store it.
+    // Priority: the photo the buyer explicitly selected in the status viewer
+    // → the most-recently seen reply_media URL from chat messages
+    // → the listing's default media_url.
+    var resolvedThumbUrl = (status.selectedMedia && status.selectedMedia.url)
+      || status._latest_reply_media
+      || status.media_url
+      || '';
+
     cartItems.push({
-      status_id: status.status_id,
-      username:  status.username,
-      caption:   status.caption   || 'Listing',
-      price:     parseFloat(status.price) || 0,
-      media_url: status.media_url || '',
-      selectedMedia: status.selectedMedia || null,
+      status_id:            status.status_id,
+      username:             status.username,
+      caption:              status.caption             || 'Listing',
+      price:                parseFloat(status.price)  || 0,
+      media_url:            status.media_url           || '',
+      // Store the selected photo object so we can surface photo-N-of-M labels
+      selectedMedia:        status.selectedMedia       || null,
+      // Cache the best thumb so renderCartModal never has to re-derive it
+      _resolved_thumb:      resolvedThumbUrl,
+      _latest_reply_media:  status._latest_reply_media || '',
     });
     saveCart();
     toast('🧺 Added to basket', status.caption || 'Item');
@@ -126,7 +142,7 @@
         'border-radius:10px;background:#25d366;color:#000;font-size:11px;' +
         'font-weight:800;display:flex;align-items:center;justify-content:center;' +
         'padding:0 5px;box-shadow:0 0 0 2px #141616;">0</span>';
-    fabEl.style.position = 'fixed'; // (redundant, kept for badge positioning context)
+    fabEl.style.position = 'fixed';
     fabEl.onclick = openCartModal;
     document.body.appendChild(fabEl);
     return fabEl;
@@ -167,15 +183,44 @@
 
     var html = items.map(function(item) {
       var price = 'K' + parseFloat(item.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 });
-      var thumbHtml = item.media_url
-        ? '<img src="' + item.media_url + '" style="width:44px;height:44px;object-fit:cover;border-radius:6px;">'
+
+      // ── FIX 4: use the pre-resolved thumbnail stored at add-time.
+      // This means the photo the buyer chose in the status viewer shows
+      // here instead of always the listing's default first photo.
+      var thumbUrl    = item._resolved_thumb || item.media_url || '';
+      var fallbackUrl = item.media_url || '';
+
+      var safeUrl      = String(thumbUrl    || '').replace(/'/g, '%27').replace(/"/g, '%22');
+      var safeFallback = String(fallbackUrl || '').replace(/'/g, '%27').replace(/"/g, '%22');
+
+      if (thumbUrl) {
+        console.log('[Cart] thumb for', item.caption, '=', thumbUrl);
+      } else {
+        console.warn('[Cart] no thumb URL for', item.caption);
+      }
+
+      // Show a photo-N-of-M label when a specific photo was selected
+      var photoLabel = '';
+      if (item.selectedMedia && item.selectedMedia.url && item.selectedMedia.index !== undefined) {
+        photoLabel = '<div style="font-size:10px;color:#e6a817;font-weight:700;margin-top:2px;">📸 Photo ' +
+          (item.selectedMedia.index + 1) +
+          (item.selectedMedia.total ? ' of ' + item.selectedMedia.total : '') +
+          ' selected</div>';
+      }
+
+      var thumbHtml = thumbUrl
+        ? '<img class="cart-thumb" src="' + safeUrl + '" '
+          + 'data-fallback="' + safeFallback + '" '
+          + 'style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;">'
         : '<div style="width:44px;height:44px;background:var(--mid);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;">🏷️</div>';
+
       return [
         '<div class="cart-item-row" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">',
         thumbHtml,
         '<div style="flex:1;min-width:0;">',
         '  <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + item.caption + '</div>',
         '  <div style="font-size:11px;color:var(--sub);">' + item.username + ' · ' + price + '</div>',
+        photoLabel,
         '</div>',
         '<button class="cart-remove-btn" data-status-id="' + item.status_id + '" style="background:none;border:none;color:#f15c6d;font-size:16px;cursor:pointer;padding:4px 8px;">✕</button>',
         '</div>',
@@ -183,6 +228,27 @@
     }).join('');
 
     container.innerHTML = html;
+
+    // Wire thumb fallback: primary → fallback → icon
+    container.querySelectorAll('img.cart-thumb').forEach(function(img) {
+      function _fail() {
+        var fb = img.getAttribute('data-fallback');
+        if (fb && img.getAttribute('data-used-fb') !== '1') {
+          console.warn('[Cart] primary thumb failed, retrying fallback:', fb);
+          img.setAttribute('data-used-fb', '1');
+          img.src = fb;
+          return;
+        }
+        console.warn('[Cart] all thumb URLs failed:', img.src);
+        var ph = document.createElement('div');
+        ph.style.cssText = 'width:44px;height:44px;background:var(--mid);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;';
+        ph.textContent = '🏷️';
+        img.replaceWith(ph);
+      }
+      img.addEventListener('error', _fail);
+      if (img.complete && img.naturalWidth === 0) _fail();
+    });
+
     container.querySelectorAll('.cart-remove-btn').forEach(function(btn) {
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -255,11 +321,12 @@
       if (window.Asterix && window.Asterix.checkout) {
         var statuses = items.map(function(item) {
           return {
-            status_id: item.status_id,
-            username:  item.username,
-            caption:   item.caption,
-            price:     item.price,
-            media_url: item.media_url,
+            status_id:    item.status_id,
+            username:     item.username,
+            caption:      item.caption,
+            price:        item.price,
+            media_url:    item.media_url,
+            // ── FIX 4: pass the selected photo through to checkout
             selectedMedia: item.selectedMedia || null,
           };
         });
@@ -305,5 +372,5 @@
     init();
   }
 
-  console.log('[Fizzme] Cart module loaded — self-contained basket FAB + toggle fix');
+  console.log('[Fizzme] Cart module loaded — self-contained basket FAB + toggle fix + selectedMedia thumbnail');
 })();

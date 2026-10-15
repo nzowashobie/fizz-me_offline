@@ -1,12 +1,22 @@
 // ============================================================
-// chat.js — Full chat module with basket, multi-listing,
-//           and checkout integration
+// chat.js — Full chat module
+//
+// FIXES
+// ─────
+//   ENQUIRY  Offer cards now show the buyer's original enquiry text
+//            (server-stored on msg.reply_text; no client-side lookup).
+//   DECLINE  Banner hides "Buy" and shows "New Offer" when this buyer
+//            got declined — prevents bypassing the negotiation.
+//   MEDIA    All Cloudinary thumbnails proxied through
+//            /api/status/proxy-media/ to avoid OpaqueResponseBlocking.
+//   PAY      Banner checks active_deal_id BEFORE reserved/sold, so
+//            after Buy Now the buyer keeps a working "💳 Pay" button.
 // ============================================================
 
 (function() {
   'use strict';
 
-  // ── DOM refs ─────────────────────────────────────────────────────────
+  // ── DOM refs ─────────────────────────────────────────────
   var convList          = document.getElementById('conversation-list');
   var chatContainer     = document.getElementById('id_chat_item_container');
   var msgInput          = document.getElementById('msg-input');
@@ -23,10 +33,9 @@
 
   if (fileInput) fileInput.multiple = true;
 
-  var MAX_ATTACH   = 30;
+  var MAX_ATTACH = 30;
   var selectedFiles = [];
 
-  // ── State ────────────────────────────────────────────────────────────
   var activeRecipient = State.activeRecipient || null;
   var lastMsgId       = 0;
   var oldestMsgId     = null;
@@ -36,15 +45,12 @@
   var pendingRead     = State.pendingRead || new Set();
   var isLoading       = false;
 
-  // ── Caches ──────────────────────────────────────────────────────────
   var messageCache      = new Map();
   var loadingRecipients = new Set();
 
-  // ── Constants ──────────────────────────────────────────────────────
   var INITIAL_LIMIT   = 30;
   var LOAD_MORE_LIMIT = 20;
 
-  // ── Proxy helper ──────────────────────────────────────────────────
   var PROXY_BASE = '/api/status/proxy-media/?url=';
 
   function proxyUrl(url) {
@@ -55,9 +61,18 @@
     return url;
   }
 
+  // Same-origin wrapper for Cloudinary URLs.
+  function _fzProxy(url) {
+    if (!url) return '';
+    var s = String(url);
+    if (s.indexOf('res.cloudinary.com') !== -1 || s.indexOf('cloudinary.com') !== -1) {
+      return PROXY_BASE + encodeURIComponent(s);
+    }
+    return s;
+  }
+
   function isMobile() { return window.innerWidth <= 768; }
 
-  // ── Helpers ──────────────────────────────────────────────────────────
   function fmtTime(ts) { return window.fmtTime ? window.fmtTime(ts) : ''; }
 
   function linkify(text) {
@@ -191,15 +206,6 @@
     return { icon: 'fa-file', color: '#aaa' };
   }
 
-  // ── Commerce cards ──────────────────────────────────────────────────
-  function dealActionButton(label, cls, onClick) {
-    var btn = document.createElement('button');
-    btn.className = 'deal-card-btn ' + cls;
-    btn.textContent = label;
-    btn.onclick = function(e) { e.stopPropagation(); btn.disabled = true; onClick(btn); };
-    return btn;
-  }
-
   function refreshThread() {
     if (State.activeRecipient && window.Asterix && window.Asterix.chat) {
       window.Asterix.chat.loadMessages(State.activeRecipient, true);
@@ -216,21 +222,17 @@
     }
   }
 
-  // ── Build transaction card ──────────────────────────────────────────
-  // PATCH A: delegate to negotiate.js
   function buildTransactionCard(msg) {
-    // Delegate to negotiate.js — it owns offer/deal card rendering
     if (window.Asterix && window.Asterix.negotiate) {
       return window.Asterix.negotiate.buildTransactionCard(msg);
     }
-    // Fallback plain text if negotiate.js not loaded yet
     var el = document.createElement('div');
     el.style.cssText = 'font-size:12px;color:rgba(255,255,255,.55);font-style:italic;';
-    el.textContent   = msg.message || '';
+    el.textContent = msg.message || '';
     return el;
   }
 
-  // ── Build bubble ──────────────────────────────────────────────────
+  // ── Bubble ───────────────────────────────────────────────
   function buildBubble(msg) {
     var isMe   = msg.sender === State.ME || msg.sender === 'me';
     var sender = msg.sender || msg.username || 'Unknown';
@@ -252,7 +254,7 @@
       var qContent = document.createElement('div');
       qContent.style.cssText = 'display:flex;align-items:center;gap:8px;';
       if (mediaUrl) {
-        var pmu   = proxyUrl(mediaUrl);
+        var pmu   = _fzProxy(mediaUrl);
         var thumb = document.createElement('div');
         thumb.style.cssText = 'flex-shrink:0;width:40px;height:40px;border-radius:4px;overflow:hidden;background:var(--mid);';
         var isImg = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(pmu);
@@ -291,25 +293,35 @@
     meta.appendChild(senderSpan); meta.appendChild(ts);
     bub.appendChild(meta);
 
-    if (msg.related_status && msg.related_status.media_url && msg.related_status.is_commercial) {
-      var rs    = msg.related_status;
-      var pCard = document.createElement('div');
-      pCard.style.cssText = 'display:flex;gap:9px;align-items:center;background:rgba(255,255,255,0.06);border-radius:10px;padding:8px 10px;margin-bottom:6px;border:1px solid rgba(255,255,255,0.1);max-width:260px;';
-      var pThumbBox = document.createElement('div');
-      pThumbBox.style.cssText = 'width:48px;height:48px;border-radius:7px;overflow:hidden;flex-shrink:0;background:var(--mid);';
-      var pThumb = document.createElement('img');
-      pThumb.src = rs.media_url; pThumb.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      pThumb.onerror = function() { pThumbBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:18px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;"></i>'; };
-      pThumbBox.appendChild(pThumb); pCard.appendChild(pThumbBox);
-      var pInfo = document.createElement('div');
-      pInfo.style.cssText = 'flex:1;min-width:0;';
-      var pCaption = rs.caption ? rs.caption.slice(0, 45) + (rs.caption.length > 45 ? '…' : '') : 'Listing';
-      var pPrice   = rs.price ? 'K' + parseFloat(rs.price).toLocaleString('en-ZM', {minimumFractionDigits:2}) : '';
-      pInfo.innerHTML =
-        '<div style="font-size:11px;color:#aaa;margin-bottom:2px;">📌 About this listing</div>' +
-        '<div style="font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + pCaption + '</div>' +
-        (pPrice ? '<div style="font-size:11px;color:#e6a817;font-weight:700;margin-top:1px;">' + pPrice + (rs.is_negotiable ? ' · negotiable' : '') + '</div>' : '');
-      pCard.appendChild(pInfo); bub.appendChild(pCard);
+    if (msg.related_status && msg.related_status.is_commercial) {
+      var rs = msg.related_status;
+      var thumbSource = msg.reply_media || rs.media_url || '';
+      if (thumbSource) {
+        var pCard = document.createElement('div');
+        pCard.style.cssText = 'display:flex;gap:9px;align-items:center;background:rgba(255,255,255,0.06);border-radius:10px;padding:8px 10px;margin-bottom:6px;border:1px solid rgba(255,255,255,0.1);max-width:260px;';
+        var pThumbBox = document.createElement('div');
+        pThumbBox.style.cssText = 'width:48px;height:48px;border-radius:7px;overflow:hidden;flex-shrink:0;background:var(--mid);';
+        var pThumb = document.createElement('img');
+        pThumb.src = _fzProxy(thumbSource);
+        pThumb.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        pThumb.onerror = function() {
+          if (rs.media_url && pThumb.src !== _fzProxy(rs.media_url)) {
+            pThumb.src = _fzProxy(rs.media_url);
+            return;
+          }
+          pThumbBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:18px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;"></i>';
+        };
+        pThumbBox.appendChild(pThumb); pCard.appendChild(pThumbBox);
+        var pInfo = document.createElement('div');
+        pInfo.style.cssText = 'flex:1;min-width:0;';
+        var pCaption = rs.caption ? rs.caption.slice(0, 45) + (rs.caption.length > 45 ? '…' : '') : 'Listing';
+        var pPrice   = rs.price ? 'K' + parseFloat(rs.price).toLocaleString('en-ZM', {minimumFractionDigits:2}) : '';
+        pInfo.innerHTML =
+          '<div style="font-size:11px;color:#aaa;margin-bottom:2px;">📌 About this listing</div>' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + pCaption + '</div>' +
+          (pPrice ? '<div style="font-size:11px;color:#e6a817;font-weight:700;margin-top:1px;">' + pPrice + (rs.is_negotiable ? ' · negotiable' : '') + '</div>' : '');
+        pCard.appendChild(pInfo); bub.appendChild(pCard);
+      }
     }
 
     if (msg.message_type && msg.message_type !== 'text') {
@@ -331,15 +343,14 @@
         var imgWrap = document.createElement('div');
         imgWrap.style.cssText = 'position:relative;display:inline-block;max-width:260px;border-radius:8px;overflow:hidden;background:var(--mid);';
         var img = document.createElement('img');
-        img.src = proxyUrl(a.file_url); img.style.cssText = 'width:100%;max-width:260px;display:block;cursor:pointer;'; img.loading = 'lazy';
-        img.onclick = function(e) { e.stopPropagation(); if (window.openZoom) window.openZoom('image', proxyUrl(a.file_url)); };
+        img.src = _fzProxy(a.file_url); img.style.cssText = 'width:100%;max-width:260px;display:block;cursor:pointer;'; img.loading = 'lazy';
+        img.onclick = function(e) { e.stopPropagation(); if (window.openZoom) window.openZoom('image', a.file_url); };
         var dlO = document.createElement('div');
         dlO.style.cssText = 'position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .2s;';
         dlO.innerHTML = '<i class="fas fa-download" style="color:#fff;font-size:14px;"></i>';
         dlO.onclick = function(e) { e.stopPropagation(); downloadFile(a.file_url, displayName); };
         imgWrap.onmouseenter = function() { dlO.style.opacity = '1'; };
         imgWrap.onmouseleave = function() { dlO.style.opacity = '0'; };
-        imgWrap.addEventListener('touchstart', function() { dlO.style.opacity = parseFloat(dlO.style.opacity) >= 0.5 ? '0' : '1'; });
         imgWrap.appendChild(img); imgWrap.appendChild(dlO);
         wrap.appendChild(imgWrap); bub.appendChild(wrap); return;
       }
@@ -348,51 +359,17 @@
         var vidWrap = document.createElement('div');
         vidWrap.style.cssText = 'position:relative;max-width:260px;border-radius:8px;overflow:hidden;background:var(--mid);';
         var video = document.createElement('video');
-        video.src = proxyUrl(a.file_url); video.controls = true; video.preload = 'metadata';
+        video.src = _fzProxy(a.file_url); video.controls = true; video.preload = 'metadata';
         video.style.cssText = 'width:100%;max-width:260px;display:block;'; video.playsInline = true;
-        var dlOV = document.createElement('div');
-        dlOV.style.cssText = 'position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .2s;z-index:2;';
-        dlOV.innerHTML = '<i class="fas fa-download" style="color:#fff;font-size:14px;"></i>';
-        dlOV.onclick = function(e) { e.stopPropagation(); downloadFile(a.file_url, displayName); };
-        vidWrap.onmouseenter = function() { dlOV.style.opacity = '1'; };
-        vidWrap.onmouseleave = function() { dlOV.style.opacity = '0'; };
-        vidWrap.addEventListener('touchstart', function() { dlOV.style.opacity = parseFloat(dlOV.style.opacity) >= 0.5 ? '0' : '1'; });
-        vidWrap.appendChild(video); vidWrap.appendChild(dlOV);
+        vidWrap.appendChild(video);
         wrap.appendChild(vidWrap); bub.appendChild(wrap); return;
       }
 
       if (cls.isAudio) {
         var audio = document.createElement('audio');
-        audio.src = proxyUrl(a.file_url); audio.controls = true;
+        audio.src = _fzProxy(a.file_url); audio.controls = true;
         audio.style.cssText = 'width:100%;max-width:260px;display:block;border-radius:6px;';
         wrap.appendChild(audio); bub.appendChild(wrap); return;
-      }
-
-      if (cls.isPdf) {
-        var pdfCard = document.createElement('div');
-        pdfCard.style.cssText = 'display:flex;align-items:center;gap:12px;background:var(--mid);border:1px solid var(--border);border-radius:10px;padding:10px 14px;max-width:280px;cursor:pointer;transition:background .15s;';
-        pdfCard.onmouseenter = function() { this.style.background = 'var(--hover,rgba(255,255,255,.07))'; };
-        pdfCard.onmouseleave = function() { this.style.background = 'var(--mid)'; };
-        var iconBlock = document.createElement('div');
-        iconBlock.style.cssText = 'flex-shrink:0;width:42px;height:48px;background:#fdecea;border-radius:6px;display:flex;align-items:center;justify-content:center;';
-        iconBlock.innerHTML = '<i class="fas fa-file-pdf" style="font-size:26px;color:#e74c3c;"></i>';
-        var infoBlock = document.createElement('div');
-        infoBlock.style.cssText = 'flex:1;min-width:0;';
-        infoBlock.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + displayName + '</div><div style="font-size:11px;color:var(--sub);margin-top:2px;">PDF · tap to open</div>';
-        var actBlock = document.createElement('div');
-        actBlock.style.cssText = 'display:flex;flex-direction:column;gap:6px;flex-shrink:0;';
-        var openBtn = document.createElement('button');
-        openBtn.style.cssText = 'background:var(--accent2);border:none;border-radius:6px;color:#fff;font-size:11px;padding:4px 8px;cursor:pointer;white-space:nowrap;';
-        openBtn.innerHTML = '<i class="fas fa-external-link-alt"></i> Open';
-        openBtn.onclick = function(e) { e.stopPropagation(); openDocumentExternally(a.file_url, displayName, 'application/pdf'); };
-        var dlBtn = document.createElement('button');
-        dlBtn.style.cssText = 'background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--sub);font-size:11px;padding:4px 8px;cursor:pointer;white-space:nowrap;';
-        dlBtn.innerHTML = '<i class="fas fa-download"></i> Save';
-        dlBtn.onclick = function(e) { e.stopPropagation(); downloadFile(a.file_url, displayName); };
-        actBlock.appendChild(openBtn); actBlock.appendChild(dlBtn);
-        pdfCard.appendChild(iconBlock); pdfCard.appendChild(infoBlock); pdfCard.appendChild(actBlock);
-        pdfCard.onclick = function() { openBtn.onclick({ stopPropagation: function(){} }); };
-        wrap.appendChild(pdfCard); bub.appendChild(wrap); return;
       }
 
       var pill = document.createElement('div');
@@ -492,11 +469,11 @@
     overlay.addEventListener('click', close);
     if (type === 'image') {
       var img = document.createElement('img');
-      img.src = proxyUrl(url); img.style.cssText = 'max-width:95vw;max-height:92vh;border-radius:6px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.7);';
+      img.src = _fzProxy(url); img.style.cssText = 'max-width:95vw;max-height:92vh;border-radius:6px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.7);';
       img.addEventListener('click', function(e) { e.stopPropagation(); }); overlay.appendChild(img);
     } else if (type === 'video') {
       var vid = document.createElement('video');
-      vid.src = proxyUrl(url); vid.controls = true; vid.autoplay = true;
+      vid.src = _fzProxy(url); vid.controls = true; vid.autoplay = true;
       vid.style.cssText = 'max-width:95vw;max-height:92vh;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,.7);';
       vid.addEventListener('click', function(e) { e.stopPropagation(); }); overlay.appendChild(vid);
     }
@@ -505,7 +482,6 @@
     document.body.appendChild(overlay);
   };
 
-  // ── Retry ────────────────────────────────────────────────────────────
   function retryMessage(localId) {
     if (!window.Sync) return;
     Sync.openDB().then(function(db) {
@@ -520,7 +496,6 @@
     });
   }
 
-  // ── Load older messages ──────────────────────────────────────────────
   function loadOlderMessages() {
     if (isLoadingOlder || !hasMoreOlder || !oldestMsgId || !activeRecipient) return;
     isLoadingOlder = true;
@@ -547,7 +522,6 @@
       .finally(function() { isLoadingOlder = false; });
   }
 
-  // ── Contact info ─────────────────────────────────────────────────────
   function fetchContactInfo(username) {
     return API.getContactInfo(username).then(function(res) { return res.ok ? res.data : null; }).catch(function() { return null; });
   }
@@ -570,7 +544,6 @@
     if (dot) dot.classList[info && info.online ? 'add' : 'remove']('show');
   }
 
-  // ── Basket (thin wrapper over cart.js) ──────────────────────────────
   function isInCart(statusId) {
     return !!(window.Asterix && window.Asterix.cart && window.Asterix.cart.isInCart(statusId));
   }
@@ -581,7 +554,22 @@
     window.Asterix.cart.toggle(statusObj);
   }
 
-  // ── Render all listings ──────────────────────────────────────────────
+  // ── Detect a declined offer for this viewer on this listing ──
+  function _hasDeclinedOffer(statusId, viewerName) {
+    var msgs = window._currentMessages || [];
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      var m = msgs[i];
+      if (m.message_type !== 'offer' || !m.offer) continue;
+      if (!m.related_status || m.related_status.status_id !== statusId) continue;
+      if (m.offer.buyer !== viewerName) continue;
+      if (m.offer.state === 'declined') return true;
+      // If a newer pending counter/accepted offer exists, don't hide Buy.
+      if (m.offer.state === 'pending' || m.offer.state === 'accepted') return false;
+    }
+    return false;
+  }
+
+  // ── Render all listings ──────────────────────────────────
   function renderAllListings() {
     var existing = chatHeaderInfo.querySelectorAll('.chat-product-banner-wrap');
     existing.forEach(function(el) { el.remove(); });
@@ -590,7 +578,15 @@
     var statusMap = {};
     msgs.forEach(function(msg) {
       if (msg.related_status && msg.related_status.is_commercial) {
-        statusMap[msg.related_status.status_id] = msg.related_status;
+        var key = msg.related_status.status_id;
+        if (!statusMap[key]) statusMap[key] = msg.related_status;
+        else statusMap[key] = Object.assign({}, statusMap[key], msg.related_status);
+        if (msg.reply_media && (
+              msg.message_type === 'offer' ||
+              msg.message_type === 'deal_confirmation' ||
+              msg.message_type === 'status_update')) {
+          statusMap[key]._latest_reply_media = msg.reply_media;
+        }
       }
     });
     var statuses = Object.values(statusMap);
@@ -610,6 +606,7 @@
       var isSold     = avail === 'sold';
       var isReserved = avail === 'reserved';
       var isOwner    = rs.username === me;
+      var hasDeclined = _hasDeclinedOffer(rs.status_id, me);
 
       var strip = document.createElement('div');
       strip.className = 'chat-product-strip';
@@ -622,21 +619,36 @@
       checkbox.type = 'checkbox'; checkbox.className = 'listing-select-cb';
       checkbox.style.cssText = 'width:18px;height:18px;accent-color:#25d366;cursor:pointer;pointer-events:auto;';
       checkbox.checked  = isInCart(rs.status_id);
-      checkbox.disabled = (isSold || isReserved || isOwner);
+      checkbox.disabled = (isSold || isReserved || isOwner || hasDeclined);
       if (!checkbox.disabled) {
-        checkbox.onchange = function() { toggleCartItem(rs.status_id, rs); };
+        checkbox.onchange = function() {
+          var statusWithMedia = Object.assign({}, rs, {
+            selectedMedia: rs._latest_reply_media ? { url: rs._latest_reply_media } : null,
+          });
+          toggleCartItem(rs.status_id, statusWithMedia);
+        };
       }
       selectWrap.appendChild(checkbox); strip.appendChild(selectWrap);
 
       // Thumbnail
       var thumbBox = document.createElement('div');
       thumbBox.style.cssText = 'width:38px;height:38px;border-radius:6px;overflow:hidden;background:var(--mid);flex-shrink:0;display:flex;align-items:center;justify-content:center;';
-      if (rs.media_url) {
+      var thumbSrc = rs._latest_reply_media || rs.media_url || '';
+      if (thumbSrc) {
         var tImg = document.createElement('img');
-        tImg.src = rs.media_url; tImg.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-        tImg.onerror = function() { thumbBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:15px;"></i>'; };
+        tImg.src = _fzProxy(thumbSrc);
+        tImg.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        tImg.onerror = function() {
+          if (rs.media_url && tImg.src !== _fzProxy(rs.media_url)) {
+            tImg.src = _fzProxy(rs.media_url);
+            return;
+          }
+          thumbBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:15px;"></i>';
+        };
         thumbBox.appendChild(tImg);
-      } else { thumbBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:15px;"></i>'; }
+      } else {
+        thumbBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:15px;"></i>';
+      }
       strip.appendChild(thumbBox);
 
       // Info
@@ -650,7 +662,18 @@
       strip.appendChild(stripInfo);
 
       // Action buttons
-      if (isSold) {
+      if (rs.active_deal_id && !isOwner) {
+        // Buyer has an active deal → Pay button wins over everything.
+        var payLabel = '💳 Pay' + (rs.final_price ? '  K' + parseFloat(rs.final_price).toLocaleString('en-ZM', {minimumFractionDigits:2}) : '');
+        strip.appendChild(_mkBannerBtn(payLabel, 'banner-btn-pay', function() {
+          if (window.Asterix && window.Asterix.payment) {
+            window.Asterix.payment.open(
+              rs.active_deal_id, rs.final_price || rs.price, me, rs.username,
+              function() { refreshThread(); }
+            );
+          }
+        }));
+      } else if (isSold) {
         var soldBadge = document.createElement('span');
         soldBadge.style.cssText = 'font-size:10px;background:#444;color:#aaa;border-radius:8px;padding:3px 8px;flex-shrink:0;';
         soldBadge.textContent = 'SOLD'; strip.appendChild(soldBadge);
@@ -658,32 +681,37 @@
         var resBadge = document.createElement('span');
         resBadge.style.cssText = 'font-size:10px;background:rgba(230,168,23,0.2);color:#e6a817;border-radius:8px;padding:3px 8px;flex-shrink:0;';
         resBadge.textContent = 'Reserved'; strip.appendChild(resBadge);
-      } else if (!isOwner) {
-        if (rs.active_deal_id) {
-          strip.appendChild(_mkBannerBtn('💳 Pay', 'banner-btn-pay', function() {
-            if (window.Asterix && window.Asterix.payment)
-              window.Asterix.payment.open(rs.active_deal_id, rs.final_price || rs.price, me, rs.username, function() { refreshThread(); });
-          }));
-        } else {
-          if (rs.is_negotiable) {
-            // ===== PATCH C: Offer button delegates to negotiate.js =====
-            strip.appendChild(_mkBannerBtn('🤝 Offer', 'banner-btn-offer', function() {
-              if (window.Asterix && window.Asterix.negotiate) {
-                window.Asterix.negotiate.openOfferFromBanner(rs);
-              } else {
-                openChatCommercePanel(rs, 'offer');
-              }
-            }));
-            // ===== end patch C =====
+      } else if (hasDeclined && !isOwner) {
+        // Buyer got declined → hide Buy, show only "New Offer".
+        var declinedBadge = document.createElement('span');
+        declinedBadge.style.cssText = 'font-size:10px;background:rgba(241,92,109,0.15);color:#f15c6d;border-radius:8px;padding:3px 8px;flex-shrink:0;';
+        declinedBadge.textContent = '❌ Declined'; strip.appendChild(declinedBadge);
+
+        strip.appendChild(_mkBannerBtn('🤝 New Offer', 'banner-btn-offer', function() {
+          if (window.Asterix && window.Asterix.negotiate) {
+            window.Asterix.negotiate.openOfferFromBanner(rs);
+          } else {
+            openChatCommercePanel(rs, 'offer');
           }
-          strip.appendChild(_mkBannerBtn('🛒 Buy', 'banner-btn-buy', function() {
-            if (window.Asterix && window.Asterix.checkout) {
-              window.Asterix.checkout.open(rs, null, function() { refreshThread(); });
+        }));
+      } else if (!isOwner) {
+        if (rs.is_negotiable) {
+          strip.appendChild(_mkBannerBtn('🤝 Offer', 'banner-btn-offer', function() {
+            if (window.Asterix && window.Asterix.negotiate) {
+              window.Asterix.negotiate.openOfferFromBanner(rs);
             } else {
-              toast('Error', 'Checkout module not available — make sure checkout.js is loaded before chat.js.');
+              openChatCommercePanel(rs, 'offer');
             }
           }));
         }
+        strip.appendChild(_mkBannerBtn('🛒 Buy', 'banner-btn-buy', function() {
+          if (window.Asterix && window.Asterix.checkout) {
+            var sel = rs._latest_reply_media ? { url: rs._latest_reply_media } : null;
+            window.Asterix.checkout.open(rs, sel, function() { refreshThread(); });
+          } else {
+            toast('Error', 'Checkout module not available.');
+          }
+        }));
       } else {
         var ownerBadge = document.createElement('span');
         ownerBadge.style.cssText = 'font-size:10px;background:rgba(37,211,102,0.15);color:#25d366;border-radius:8px;padding:3px 8px;flex-shrink:0;';
@@ -695,7 +723,6 @@
     })(rs); });
   }
 
-  // ── Banner button factory ────────────────────────────────────────────
   function _mkBannerBtn(label, cls, onClick) {
     var btn = document.createElement('button');
     btn.className = 'chat-banner-action-btn ' + cls;
@@ -713,67 +740,23 @@
     return btn;
   }
 
-  // ── In-chat commerce panel (offers) ─────────────────────────────────
   function openChatCommercePanel(rs, mode) {
     var old = document.getElementById('chat-commerce-panel');
     if (old) old.remove();
-
-    // ===== PATCH B: replace 'offer' branch =====
     if (mode === 'offer') {
-      // Delegate to the Zambian bargaining sheet in negotiate.js
       if (window.Asterix && window.Asterix.negotiate) {
         window.Asterix.negotiate.openOfferFromBanner(rs);
       }
       return;
     }
-    // ===== end patch B =====
-
-    // Fallback or other modes (if any) – old panel creation
     var panel = document.createElement('div');
     panel.id = 'chat-commerce-panel';
-    panel.style.cssText = [
-      'position:absolute;bottom:100%;left:0;right:0;z-index:30;',
-      'background:var(--card,#1e1e1e);border-top:1px solid rgba(255,255,255,0.1);',
-      'border-radius:16px 16px 0 0;padding:16px 16px 10px;',
-      'box-shadow:0 -4px 24px rgba(0,0,0,0.4);animation:slideUpSheet .2s ease;'
-    ].join('');
-
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:14px;';
-    var tBox = document.createElement('div');
-    tBox.style.cssText = 'width:44px;height:44px;border-radius:8px;overflow:hidden;background:var(--mid);flex-shrink:0;display:flex;align-items:center;justify-content:center;';
-    if (rs.media_url) {
-      var ti = document.createElement('img'); ti.src = rs.media_url; ti.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      ti.onerror = function() { tBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);"></i>'; };
-      tBox.appendChild(ti);
-    } else { tBox.innerHTML = '<i class="fas fa-tag" style="color:var(--sub);font-size:18px;"></i>'; }
-    hdr.appendChild(tBox);
-
-    var hdrInfo = document.createElement('div'); hdrInfo.style.cssText = 'flex:1;min-width:0;';
-    var cap = rs.caption ? rs.caption.slice(0, 50) : 'Listing';
-    var priceNum = rs.price ? parseFloat(rs.price) : null;
-    hdrInfo.innerHTML =
-      '<div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + cap + '</div>' +
-      '<div style="font-size:12px;color:#e6a817;font-weight:700;">' + (priceNum ? 'K' + priceNum.toLocaleString('en-ZM', {minimumFractionDigits:2}) : '') + (rs.is_negotiable ? ' · negotiable' : '') + '</div>';
-    hdr.appendChild(hdrInfo);
-
-    var closeX = document.createElement('button');
-    closeX.style.cssText = 'background:none;border:none;color:var(--sub);font-size:18px;cursor:pointer;flex-shrink:0;padding:4px;';
-    closeX.innerHTML = '&times;'; closeX.onclick = function() { panel.remove(); };
-    hdr.appendChild(closeX); panel.appendChild(hdr);
-
-    // other modes (if any)...
-    // For safety, if we get here with unknown mode, we just show a message.
-    var msgEl = document.createElement('div');
-    msgEl.style.cssText = 'font-size:13px;color:var(--sub);text-align:center;padding:12px 0;';
-    msgEl.textContent = 'This action is handled by the bargaining sheet.';
-    panel.appendChild(msgEl);
-
+    panel.style.cssText = 'position:absolute;bottom:100%;left:0;right:0;z-index:30;background:var(--card,#1e1e1e);border-top:1px solid rgba(255,255,255,0.1);border-radius:16px 16px 0 0;padding:16px;';
+    panel.innerHTML = '<div style="font-size:13px;color:var(--sub);text-align:center;">Handled by the bargaining sheet.</div>';
     var inputBar = document.getElementById('chat-input-bar');
     if (inputBar) inputBar.appendChild(panel);
   }
 
-  // ── Market thread mode ───────────────────────────────────────────────
   function setMarketThreadMode(on) {
     var area = document.getElementById('chat-area');
     if (area) area.classList[on ? 'add' : 'remove']('market-thread-mode');
@@ -786,29 +769,23 @@
     } else if (!on && pill) { pill.remove(); }
   }
 
-  // ── Load messages ────────────────────────────────────────────────────
   function loadMessages(recipient, forceRefresh) {
     if (loadingRecipients.has(recipient)) return Promise.resolve();
     activeRecipient = recipient; State.activeRecipient = recipient;
 
     if (forceRefresh) {
       messageCache.delete(recipient);
-      if (window._currentMessages && activeRecipient === recipient) window._currentMessages = [];
-    } else if (window.Sync) {
-      Sync.getMessages(recipient, INITIAL_LIMIT).then(function(localMsgs) {
-        if (localMsgs && localMsgs.length) {
-          renderMessages(recipient, localMsgs);
-          var latest = null;
-          for (var i = localMsgs.length - 1; i >= 0; i--) { if (localMsgs[i].server_id) { latest = localMsgs[i]; break; } }
-          if (latest) lastMsgId = latest.server_id;
-          messageCache.set(recipient, localMsgs); window._currentMessages = localMsgs;
-          renderAllListings(); hideSidebarOnMobile();
-          fetchContactInfo(recipient).then(function(info) { if (info) updateOnlineStatus(recipient, info); });
-        }
-      });
+      if (window._currentMessages && activeRecipient === recipient) {
+        window._currentMessages = [];
+      }
+      if (window.Sync && typeof Sync.deleteMessagesForRecipient === 'function') {
+        Sync.deleteMessagesForRecipient(recipient).catch(function() {});
+      }
     }
 
-    loadingRecipients.add(recipient); isLoading = true;
+    loadingRecipients.add(recipient);
+    isLoading = true;
+    try { chatContainer.classList.add('syncing'); } catch (e) {}
     chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div>' +
       '<div class="chat-header-sub" style="color:var(--accent2);"><i class="fas fa-spinner fa-spin"></i> Syncing\u2026</div>';
     oldestMsgId = null; hasMoreOlder = true; isLoadingOlder = false;
@@ -819,38 +796,55 @@
       .then(function(res) {
         if (!res.ok) throw new Error((res.data && res.data.error) || 'Failed to load messages');
         var msgs = res.data;
-        if (window.Sync) return Sync.mergeMessages(recipient, msgs).then(function() { return Sync.getMessages(recipient, INITIAL_LIMIT); });
+        if (window.Sync) {
+          return Sync.mergeMessages(recipient, msgs).then(function() { return msgs; });
+        }
         return msgs;
       })
       .then(function(allMsgs) {
         renderMessages(recipient, allMsgs);
-        messageCache.set(recipient, allMsgs); window._currentMessages = allMsgs;
+        messageCache.set(recipient, allMsgs);
+        window._currentMessages = allMsgs;
 
         var latestServer = null;
-        for (var i = allMsgs.length - 1; i >= 0; i--) { if (allMsgs[i].server_id) { latestServer = allMsgs[i]; break; } }
+        for (var i = allMsgs.length - 1; i >= 0; i--) {
+          if (allMsgs[i].server_id) { latestServer = allMsgs[i]; break; }
+        }
         lastMsgId = latestServer ? latestServer.server_id : 0;
 
-        if (allMsgs.length) { oldestMsgId = allMsgs[0].id; hasMoreOlder = allMsgs.length >= INITIAL_LIMIT; }
-        else { oldestMsgId = null; hasMoreOlder = false; }
+        if (allMsgs.length) {
+          oldestMsgId = allMsgs[0].id;
+          hasMoreOlder = allMsgs.length >= INITIAL_LIMIT;
+        } else {
+          oldestMsgId = null;
+          hasMoreOlder = false;
+        }
 
-        pendingRead.add(recipient); State.prevCounts[recipient] = 0;
+        pendingRead.add(recipient);
+        State.prevCounts[recipient] = 0;
         var badge = document.getElementById('unread-' + recipient);
-        if (badge) { badge.textContent = ''; badge.classList.remove('show', 'pop'); badge.classList.add('hide'); setTimeout(function() { badge.classList.remove('hide'); }, 300); }
+        if (badge) {
+          badge.textContent = '';
+          badge.classList.remove('show', 'pop');
+          badge.classList.add('hide');
+          setTimeout(function() { badge.classList.remove('hide'); }, 300);
+        }
 
         if (localStorage.getItem('asterix_read_receipts') !== 'false') {
-          API.markAsRead(recipient); if (window.Sync) Sync.markAsRead(recipient);
+          API.markAsRead(recipient);
+          if (window.Sync) Sync.markAsRead(recipient);
         }
         setTimeout(function() { pendingRead.delete(recipient); }, 4000);
 
         var item = document.querySelector('.conversation-item[data-recipient="' + recipient + '"]');
         if (item) {
           var avatar = item.querySelector('.conv-avatar');
-          chatHeaderAvatar.src = avatar ? avatar.src : ''; chatHeaderAvatar.style.display = 'block';
+          chatHeaderAvatar.src = avatar ? avatar.src : '';
+          chatHeaderAvatar.style.display = 'block';
           chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub">tap for info</div>';
           gearBtn.style.display = 'flex';
         }
 
-        // Defer renderAllListings so it runs AFTER the innerHTML write above has settled
         setTimeout(function() { renderAllListings(); }, 0);
 
         fetch('/api/conversation-previews/').then(function(r) { return r.ok ? r.json() : {}; })
@@ -861,15 +855,17 @@
 
         hideSidebarOnMobile();
         fetchContactInfo(recipient).then(function(info) { if (info) updateOnlineStatus(recipient, info); });
-        isLoading = false; errStreak = 0;
+        isLoading = false;
+        errStreak = 0;
         return allMsgs;
       })
       .catch(function(e) {
         toast('Error', 'Could not load messages.');
         chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub" style="color:#f15c6d;">Error loading</div>';
-        isLoading = false; throw e;
+        isLoading = false;
+        throw e;
       })
-      .finally(function() { loadingRecipients.delete(recipient); });
+      .finally(function() { loadingRecipients.delete(recipient); try { chatContainer.classList.remove('syncing'); } catch (e) {} });
   }
 
   function hideSidebarOnMobile() {
@@ -884,24 +880,20 @@
     chatContainer.innerHTML = '';
     msgs.forEach(function(m) { chatContainer.appendChild(buildBubble(m)); });
     chatContainer.scrollTop = chatContainer.scrollHeight;
-    var sub = chatHeaderInfo.querySelector('.chat-header-sub');
-    if (sub && sub.textContent === 'Syncing\u2026') {
-      var item = document.querySelector('.conversation-item[data-recipient="' + recipient + '"]');
-      if (item) {
-        var av = item.querySelector('.conv-avatar');
-        chatHeaderAvatar.src = av ? av.src : ''; chatHeaderAvatar.style.display = 'block';
-        chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub">tap for info</div>';
-        gearBtn.style.display = 'flex';
-      }
-    }
   }
 
   function clearCache(recipient) {
-    if (recipient) { messageCache.delete(recipient); if (window._currentMessages && activeRecipient === recipient) window._currentMessages = []; }
-    else { messageCache.clear(); window._currentMessages = []; }
+    if (recipient) {
+      messageCache.delete(recipient);
+      if (window._currentMessages && activeRecipient === recipient) {
+        window._currentMessages = [];
+      }
+    } else {
+      messageCache.clear();
+      window._currentMessages = [];
+    }
   }
 
-  // ── Reply ─────────────────────────────────────────────────────────────
   function replyToMessage(msg) {
     var replyId = msg.server_id || msg.id;
     if (!replyId) { toast('Cannot reply', 'This message is not yet delivered.'); return; }
@@ -925,7 +917,7 @@
     var banner = document.createElement('div'); banner.id = '_reply-banner';
     var thumbHtml = '';
     if (mediaUrl) {
-      var pmu2 = proxyUrl(mediaUrl);
+      var pmu2 = _fzProxy(mediaUrl);
       if (mediaType.indexOf('image/') === 0) thumbHtml = '<img src="' + pmu2 + '" style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
       else if (mediaType.indexOf('video/') === 0) thumbHtml = '<video src="' + pmu2 + '" style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;" muted></video>';
       else thumbHtml = '<i class="fas fa-file" style="font-size:24px;color:var(--sub);"></i>';
@@ -942,10 +934,11 @@
     if (row) { var bub = row.querySelector('.msg-bubble'); if (bub) { bub.style.transition = 'background .2s'; bub.style.background = 'rgba(37,211,102,0.18)'; setTimeout(function() { bub.style.background = ''; }, 1800); } }
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────
   function deleteMessage(id) {
     var cached = messageCache.get(activeRecipient) || [], msg = null;
-    for (var i = 0; i < cached.length; i++) { if (cached[i].id == id || cached[i].server_id == id || cached[i].local_id == id) { msg = cached[i]; break; } }
+    for (var i = 0; i < cached.length; i++) {
+      if (cached[i].id == id || cached[i].server_id == id || cached[i].local_id == id) { msg = cached[i]; break; }
+    }
     if (!msg) {
       var row2 = document.querySelector('[data-msg-id="' + id + '"]') || document.querySelector('[data-local-id="' + id + '"]') || document.querySelector('[data-server-id="' + id + '"]');
       if (row2) { var sid = row2.getAttribute('data-server-id'); msg = sid ? { server_id: sid, local_id: id } : { local_id: id }; }
@@ -954,18 +947,28 @@
     var row3 = document.querySelector('[data-msg-id="' + id + '"]') || document.querySelector('[data-local-id="' + id + '"]') || document.querySelector('[data-server-id="' + id + '"]');
     if (row3) row3.remove();
     var idx = -1;
-    for (var j = 0; j < cached.length; j++) { if (cached[j].id == id || cached[j].server_id == id || cached[j].local_id == id) { idx = j; break; } }
+    for (var j = 0; j < cached.length; j++) {
+      if (cached[j].id == id || cached[j].server_id == id || cached[j].local_id == id) { idx = j; break; }
+    }
     if (idx !== -1) { cached.splice(idx, 1); messageCache.set(activeRecipient, cached); }
     if (window.Sync) { var localId2 = msg.local_id || msg.id; if (localId2) Sync.deleteMessage(localId2).catch(function() {}); }
     var serverId = msg.server_id;
     if (serverId && /^\d+$/.test(String(serverId))) {
       if (window.Sync) Sync.queueDelete(serverId).catch(function() {});
-      if (navigator.onLine) API.deleteMessage(serverId).then(function(res) { if ((res.ok || res.status === 404) && window.Sync) Sync.clearPendingDelete(serverId).catch(function() {}); }).catch(function() {});
-      else toast('Offline', 'Message will be deleted when you reconnect.');
-    } else { toast('Deleted', 'Message removed locally.'); }
+      if (navigator.onLine) {
+        API.deleteMessage(serverId).then(function(res) {
+          if ((res.ok || res.status === 404) && window.Sync) {
+            Sync.clearPendingDelete(serverId).catch(function() {});
+          }
+        }).catch(function() {});
+      } else {
+        toast('Offline', 'Message will be deleted when you reconnect.');
+      }
+    } else {
+      toast('Deleted', 'Message removed locally.');
+    }
   }
 
-  // ── Send ──────────────────────────────────────────────────────────────
   function sendMessage() {
     var text = msgInput.value.trim(), fileList = Array.prototype.slice.call(fileInput.files);
     if (!activeRecipient) {
@@ -976,324 +979,423 @@
     if (!text && !fileList.length) return;
 
     var localId = 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-    var localMsg = { id: localId, local_id: localId, sender: State.ME, recipient: activeRecipient, message: text, timestamp: new Date().toISOString(), is_read: false, status: 'pending', attachments: [], reply_to: null, reply_sender: '', reply_text: '', reply_media: '' };
-    if (window._replyContext && window._replyContext.id) { localMsg.reply_to = window._replyContext.id; localMsg.reply_sender = window._replyContext.sender || ''; localMsg.reply_text = window._replyContext.text || ''; localMsg.reply_media = window._replyContext.mediaUrl || ''; }
-    var replyCtx = window._replyContext ? { id: window._replyContext.id, sender: window._replyContext.sender || '', text: window._replyContext.text || '', mediaUrl: window._replyContext.mediaUrl || '' } : null;
+    var localMsg = {
+      id: localId, local_id: localId, sender: State.ME, recipient: activeRecipient,
+      message: text, timestamp: new Date().toISOString(), is_read: false,
+      status: 'pending', attachments: [], reply_to: null, reply_sender: '',
+      reply_text: '', reply_media: ''
+    };
+    if (window._replyContext && window._replyContext.id) {
+      localMsg.reply_to = window._replyContext.id;
+      localMsg.reply_sender = window._replyContext.sender || '';
+      localMsg.reply_text = window._replyContext.text || '';
+      localMsg.reply_media = window._replyContext.mediaUrl || '';
+    }
+    var replyCtx = window._replyContext ? {
+      id: window._replyContext.id,
+      sender: window._replyContext.sender || '',
+      text: window._replyContext.text || '',
+      mediaUrl: window._replyContext.mediaUrl || ''
+    } : null;
 
     if (window.Sync) Sync.saveMessage(localMsg);
-    chatContainer.appendChild(buildBubble(localMsg)); chatContainer.scrollTop = chatContainer.scrollHeight;
+    chatContainer.appendChild(buildBubble(localMsg));
+    chatContainer.scrollTop = chatContainer.scrollHeight;
     resetInputs();
-    if (!navigator.onLine) { toast('Offline', 'Message queued \u2013 will send when online.'); return; }
+    if (!navigator.onLine) {
+      toast('Offline', 'Message queued – will send when online.');
+      return;
+    }
 
     var compressed = new Array(fileList.length);
-    var compressPromises = fileList.map(function(f, idx) { return compressImage(f, 1280, 0.8).then(function(r) { compressed[idx] = r; }); });
-    if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Processing files\u2026');
+    var compressPromises = fileList.map(function(f, idx) {
+      return compressImage(f, 1280, 0.8).then(function(r) { compressed[idx] = r; });
+    });
+    if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Processing files…');
 
     Promise.all(compressPromises).then(function() {
       var fd = new FormData();
-      fd.append('recipient', activeRecipient); fd.append('message', text);
-      if (replyCtx) { fd.append('reply_to', replyCtx.id); fd.append('reply_sender', replyCtx.sender); fd.append('reply_text', replyCtx.text); if (replyCtx.mediaUrl) fd.append('reply_media', replyCtx.mediaUrl); window._replyContext = null; var b2 = document.getElementById('_reply-banner'); if (b2) b2.remove(); }
+      fd.append('recipient', activeRecipient);
+      fd.append('message', text);
+      if (replyCtx) {
+        fd.append('reply_to', replyCtx.id);
+        fd.append('reply_sender', replyCtx.sender);
+        fd.append('reply_text', replyCtx.text);
+        if (replyCtx.mediaUrl) fd.append('reply_media', replyCtx.mediaUrl);
+        window._replyContext = null;
+        var b2 = document.getElementById('_reply-banner');
+        if (b2) b2.remove();
+      }
       compressed.forEach(function(item) { fd.append('files', item.blob, item.name); });
       return new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest(); xhr.open('POST', '/api/messages/send/'); xhr.setRequestHeader('X-CSRFToken', getCsrf());
-        xhr.upload.onprogress = function(e) { if (e.lengthComputable && window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Uploading\u2026 ' + Math.round(e.loaded / e.total * 100) + '%'); };
-        xhr.onload = function() { var res = { ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, rawText: xhr.responseText }; try { res.data = JSON.parse(xhr.responseText); } catch(e) { res.data = { error: xhr.responseText || 'Server error' }; } resolve(res); };
-        xhr.onerror = function() { reject(new Error('Network error')); }; xhr.ontimeout = function() { reject(new Error('Upload timeout')); }; xhr.timeout = 120000; xhr.send(fd);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/messages/send/');
+        xhr.setRequestHeader('X-CSRFToken', getCsrf());
+        xhr.upload.onprogress = function(e) {
+          if (e.lengthComputable && window.Asterix && window.Asterix.ui) {
+            window.Asterix.ui.showSpinner('Uploading… ' + Math.round(e.loaded / e.total * 100) + '%');
+          }
+        };
+        xhr.onload = function() {
+          var res = { ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, rawText: xhr.responseText };
+          try { res.data = JSON.parse(xhr.responseText); } catch(e) { res.data = { error: xhr.responseText || 'Server error' }; }
+          resolve(res);
+        };
+        xhr.onerror = function() { reject(new Error('Network error')); };
+        xhr.ontimeout = function() { reject(new Error('Upload timeout')); };
+        xhr.timeout = 120000;
+        xhr.send(fd);
       });
     }).then(function(res) {
       if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner();
-      if (!res.ok) { var err = new Error((res.data && (res.data.message || res.data.error)) || res.rawText || 'Server error (' + res.status + ')'); err.response = res; throw err; }
-      if (res.data.status !== 'success') { var err2 = new Error((res.data && res.data.message) || 'Send failed'); err2.response = res; throw err2; }
+      if (!res.ok) {
+        var err = new Error((res.data && (res.data.message || res.data.error)) || res.rawText || 'Server error (' + res.status + ')');
+        err.response = res; throw err;
+      }
+      if (res.data.status !== 'success') {
+        var err2 = new Error((res.data && res.data.message) || 'Send failed');
+        err2.response = res; throw err2;
+      }
       var serverMsg = res.data.message;
       if (window.Sync) {
-        var updatedMsg = { id: localId, local_id: localId, server_id: serverMsg.id, sender: serverMsg.sender, recipient: serverMsg.recipient, message: serverMsg.message, timestamp: serverMsg.timestamp, is_read: serverMsg.is_read, status: 'sent', attachments: serverMsg.attachments || [], reply_to: serverMsg.reply_to, reply_sender: serverMsg.reply_sender || '', reply_text: serverMsg.reply_text || '', reply_media: serverMsg.reply_media || '', profile_picture: serverMsg.profile_picture || '', related_status: serverMsg.related_status || null };
+        var updatedMsg = {
+          id: localId, local_id: localId, server_id: serverMsg.id,
+          sender: serverMsg.sender, recipient: serverMsg.recipient,
+          message: serverMsg.message, timestamp: serverMsg.timestamp,
+          is_read: serverMsg.is_read, status: 'sent',
+          attachments: serverMsg.attachments || [],
+          reply_to: serverMsg.reply_to,
+          reply_sender: serverMsg.reply_sender || '',
+          reply_text: serverMsg.reply_text || '',
+          reply_media: serverMsg.reply_media || '',
+          profile_picture: serverMsg.profile_picture || '',
+          related_status: serverMsg.related_status || null,
+          offer: serverMsg.offer || null,
+          deal: serverMsg.deal || null,
+        };
         Sync.saveMessage(updatedMsg).then(function() {
           var row4 = document.querySelector('[data-local-id="' + localId + '"]');
-          if (row4) { var nb = buildBubble(serverMsg); nb.setAttribute('data-server-id', serverMsg.id); nb.setAttribute('data-local-id', localId); row4.parentNode.replaceChild(nb, row4); }
+          if (row4) {
+            var nb = buildBubble(serverMsg);
+            nb.setAttribute('data-server-id', serverMsg.id);
+            nb.setAttribute('data-local-id', localId);
+            row4.parentNode.replaceChild(nb, row4);
+          }
           clearCache(activeRecipient);
         });
-      } else { clearCache(activeRecipient); return loadMessages(activeRecipient, true); }
-      if (typeof window.fetchConversationPreviews === 'function') window.fetchConversationPreviews().then(window.applyConversationPreviews);
-      else fetch('/api/conversation-previews/').then(function(r) { return r.ok ? r.json() : {}; }).then(function(p) { Object.keys(p).forEach(function(who) { var el = document.getElementById('preview-' + who); if (el && p[who].preview) el.textContent = (p[who].from_me ? 'You: ' : '') + p[who].preview; }); markMarketConversations(p); }).catch(function() {});
+      } else {
+        clearCache(activeRecipient);
+        return loadMessages(activeRecipient, true);
+      }
+      if (typeof window.fetchConversationPreviews === 'function') {
+        window.fetchConversationPreviews().then(window.applyConversationPreviews);
+      }
     }).catch(function(e) {
       if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner();
       if (window.Sync) {
         Sync.updateMessageStatus(localId, 'failed');
         var row5 = document.querySelector('[data-local-id="' + localId + '"]');
-        if (row5) { var bub2 = row5.querySelector('.msg-bubble'), sw2 = bub2 && bub2.querySelector('div:last-child'); if (sw2 && sw2.style && sw2.style.fontSize === '11px') { sw2.innerHTML = '<span style="color:#f15c6d;"><i class="fas fa-exclamation-circle"></i> Failed</span> <button class="msg-retry-btn" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px;text-decoration:underline;">Retry</button>'; sw2.querySelector('.msg-retry-btn').onclick = function(ev) { ev.stopPropagation(); retryMessage(localId); }; } }
+        if (row5) {
+          var bub2 = row5.querySelector('.msg-bubble'),
+              sw2 = bub2 && bub2.querySelector('div:last-child');
+          if (sw2 && sw2.style && sw2.style.fontSize === '11px') {
+            sw2.innerHTML = '<span style="color:#f15c6d;"><i class="fas fa-exclamation-circle"></i> Failed</span> <button class="msg-retry-btn" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px;text-decoration:underline;">Retry</button>';
+            sw2.querySelector('.msg-retry-btn').onclick = function(ev) {
+              ev.stopPropagation();
+              retryMessage(localId);
+            };
+          }
+        }
       }
-      var errMsg = e.message || 'Unknown error'; if (e.response && e.response.rawText) errMsg += ' \u2013 ' + e.response.rawText.substring(0, 100);
-      toast(navigator.onLine ? 'Send failed' : 'Offline', navigator.onLine ? errMsg : 'Message queued \u2013 will send when online.');
+      var errMsg = e.message || 'Unknown error';
+      toast(navigator.onLine ? 'Send failed' : 'Offline', navigator.onLine ? errMsg : 'Message queued – will send when online.');
     });
   }
 
-  function resetInputs() { msgInput.value = ''; msgInput.style.height = '42px'; fileInput.value = ''; selectedFiles = []; attachmentPreview.innerHTML = ''; sendBtn.classList.remove('show'); }
+  function resetInputs() {
+    msgInput.value = '';
+    msgInput.style.height = '42px';
+    fileInput.value = '';
+    selectedFiles = [];
+    attachmentPreview.innerHTML = '';
+    sendBtn.classList.remove('show');
+  }
 
-  // ── Clear chat ────────────────────────────────────────────────────────
   function clearChat() {
     var recipient = State.activeRecipient || activeRecipient;
     if (!recipient) { toast('No chat', 'Open a conversation first.'); return; }
-    showConfirm({ icon: '\uD83E\uDDF9', title: 'Clear Chat', body: 'Clear all messages with ' + recipient + ' from your device only? The other person will still see them.', okLabel: 'Clear for Me', okClass: 'danger' }).then(function(ok) {
+    showConfirm({
+      icon: '\uD83E\uDDF9',
+      title: 'Clear Chat',
+      body: 'Clear all messages with ' + recipient + ' from your device only?',
+      okLabel: 'Clear for Me',
+      okClass: 'danger'
+    }).then(function(ok) {
       if (!ok) return;
-      if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Clearing chat\u2026');
-      chatContainer.innerHTML = ''; clearCache(recipient); lastMsgId = 0; oldestMsgId = null; hasMoreOlder = true; isLoadingOlder = false; pendingRead.delete(recipient);
+      if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Clearing chat…');
+      chatContainer.innerHTML = '';
+      clearCache(recipient);
+      lastMsgId = 0; oldestMsgId = null; hasMoreOlder = true; isLoadingOlder = false;
+      pendingRead.delete(recipient);
+
       var clearDB = Promise.resolve();
-      if (window.Sync && typeof Sync.deleteMessagesForRecipient === 'function') clearDB = Sync.deleteMessagesForRecipient(recipient);
+      if (window.Sync && typeof Sync.deleteMessagesForRecipient === 'function') {
+        clearDB = Sync.deleteMessagesForRecipient(recipient);
+      }
       clearDB.then(function() { return API.clearChat(recipient); })
-        .then(function(res) {
-          if (res.ok) {
-            toast('\u2705', 'Chat cleared for you.'); var pEl = document.getElementById('preview-' + recipient); if (pEl) pEl.textContent = 'Tap to open chat';
-            var b3 = document.getElementById('unread-' + recipient); if (b3) { b3.textContent = ''; b3.classList.remove('show', 'pop'); }
-            return loadMessages(recipient, true);
-          } else { toast('Error', ((res.data && (res.data.error || res.data.message)) || res.rawText || 'Could not clear chat.') + ' (status ' + res.status + ')'); }
-        }).catch(function(e) { toast('Error', 'Failed to clear chat: ' + (e.message || 'unknown error')); })
-        .finally(function() { if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner(); if (typeof window.restartPolling === 'function') window.restartPolling(); });
+      .then(function(res) {
+        if (res.ok) {
+          toast('\u2705', 'Chat cleared for you.');
+          return loadMessages(recipient, true);
+        } else {
+          toast('Error', ((res.data && (res.data.error || res.data.message)) || res.rawText || 'Could not clear chat.'));
+        }
+      }).catch(function(e) {
+        toast('Error', 'Failed to clear chat: ' + (e.message || 'unknown error'));
+      }).finally(function() {
+        if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner();
+      });
     });
   }
 
-  // ── Forward ───────────────────────────────────────────────────────────
   var forwardState = { message: null, selected: null, modal: null, list: null, sendBtn: null };
 
   function forwardMessage(msg) {
     var contacts = [];
-    document.querySelectorAll('.conversation-item').forEach(function(item) { var u = item.getAttribute('data-recipient'); if (u !== activeRecipient) { var av = item.querySelector('.conv-avatar'); contacts.push({ username: u, avatar: av ? av.src : '' }); } });
-    var modal = document.getElementById('forward-modal'), list = document.getElementById('fwd-contacts-list'), sendBtn2 = document.getElementById('fwd-send-btn');
+    document.querySelectorAll('.conversation-item').forEach(function(item) {
+      var u = item.getAttribute('data-recipient');
+      if (u !== activeRecipient) {
+        var av = item.querySelector('.conv-avatar');
+        contacts.push({ username: u, avatar: av ? av.src : '' });
+      }
+    });
+    var modal = document.getElementById('forward-modal'),
+        list = document.getElementById('fwd-contacts-list'),
+        sendBtn2 = document.getElementById('fwd-send-btn');
     if (!modal || !list || !sendBtn2) { toast('Error', 'Forward modal not available.'); return; }
     if (!contacts.length) { toast('No contacts', 'No other contacts to forward to.'); return; }
-    list.innerHTML = contacts.map(function(c) { return '<div class="fwd-contact-item" data-username="' + c.username + '" style="cursor:pointer;padding:6px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;"><img class="fwd-avatar" src="' + c.avatar + '" style="width:30px;height:30px;border-radius:50%;"> <span>' + c.username + '</span></div>'; }).join('');
-    forwardState.message = msg; forwardState.modal = modal; forwardState.list = list; forwardState.sendBtn = sendBtn2; forwardState.selected = null; sendBtn2.disabled = true;
-    list.querySelectorAll('.fwd-contact-item').forEach(function(el) { el.addEventListener('click', function() { list.querySelectorAll('.fwd-contact-item').forEach(function(i) { i.classList.remove('selected'); }); this.classList.add('selected'); forwardState.selected = this.getAttribute('data-username'); sendBtn2.disabled = false; }); });
+    list.innerHTML = contacts.map(function(c) {
+      return '<div class="fwd-contact-item" data-username="' + c.username + '"><img class="fwd-avatar" src="' + c.avatar + '"> <span>' + c.username + '</span></div>';
+    }).join('');
+    forwardState.message = msg;
+    forwardState.modal = modal;
+    forwardState.list = list;
+    forwardState.sendBtn = sendBtn2;
+    forwardState.selected = null;
+    sendBtn2.disabled = true;
+    list.querySelectorAll('.fwd-contact-item').forEach(function(el) {
+      el.addEventListener('click', function() {
+        list.querySelectorAll('.fwd-contact-item').forEach(function(i) { i.classList.remove('selected'); });
+        this.classList.add('selected');
+        forwardState.selected = this.getAttribute('data-username');
+        sendBtn2.disabled = false;
+      });
+    });
     modal.classList.add('open');
   }
 
-  function _fwdResolve() { if (forwardState.modal) forwardState.modal.classList.remove('open'); forwardState.selected = null; if (forwardState.sendBtn) forwardState.sendBtn.disabled = true; }
+  function _fwdResolve() {
+    if (forwardState.modal) forwardState.modal.classList.remove('open');
+    forwardState.selected = null;
+    if (forwardState.sendBtn) forwardState.sendBtn.disabled = true;
+  }
 
   function _fwdConfirm() {
-    var username = forwardState.selected; if (!username) { toast('Error', 'Please select a contact.'); return; }
-    var msg = forwardState.message; if (!msg) { toast('Error', 'No message to forward.'); return; }
-    var fd = new FormData(); fd.append('recipient', username); fd.append('message', msg.message || '');
+    var username = forwardState.selected;
+    if (!username) { toast('Error', 'Please select a contact.'); return; }
+    var msg = forwardState.message;
+    if (!msg) { toast('Error', 'No message to forward.'); return; }
+    var fd = new FormData();
+    fd.append('recipient', username);
+    fd.append('message', msg.message || '');
     var ids = (msg.attachments || []).map(function(a) { return a.id; }).filter(Boolean);
     if (ids.length) fd.append('forward_attachment_ids', ids.join(','));
-    if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Forwarding\u2026');
+    if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Forwarding…');
     API.sendMessage(fd).then(function(res) {
       if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner();
       if (res.ok && res.data.status === 'success') {
-        var sa = (res.data.message && res.data.message.attachments) || [];
-        if (ids.length && sa.length < ids.length) toast('Partially forwarded', 'Message sent, but ' + (ids.length - sa.length) + ' of ' + ids.length + ' attachment(s) could not be forwarded.');
-        else toast('Forwarded', 'Message sent to ' + username);
+        toast('Forwarded', 'Message sent to ' + username);
         _fwdResolve();
-      } else { toast('Error', (res.data && res.data.message) || 'Forward failed'); }
-    }).catch(function() { if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner(); toast('Error', 'Forward failed'); });
+      } else {
+        toast('Error', (res.data && res.data.message) || 'Forward failed');
+      }
+    }).catch(function() {
+      if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner();
+      toast('Error', 'Forward failed');
+    });
   }
 
   window.Asterix = window.Asterix || {};
   window.Asterix.messages = { _fwdResolve: _fwdResolve, _fwdConfirm: _fwdConfirm };
 
-  // ── Add conversation item ─────────────────────────────────────────────
   function addConversationItem(contact) {
-    var list = document.getElementById('conversation-list'); if (!list) return;
+    var list = document.getElementById('conversation-list');
+    if (!list) return;
     if (document.querySelector('.conversation-item[data-recipient="' + contact.username + '"]')) return;
-    var item = document.createElement('div'); item.className = 'conversation-item'; item.setAttribute('data-recipient', contact.username);
-    var avatarUrl = contact.profile_picture || '', initial = (contact.username || '?').charAt(0).toUpperCase();
+    var item = document.createElement('div');
+    item.className = 'conversation-item';
+    item.setAttribute('data-recipient', contact.username);
+    var avatarUrl = contact.profile_picture || '',
+        initial = (contact.username || '?').charAt(0).toUpperCase();
     var bgColors = ['#e53935','#8e24aa','#1e88e5','#00897b','#f4511e','#6d4c41','#546e7a','#43a047'];
     var bgColor  = bgColors[contact.username.charCodeAt(0) % bgColors.length];
-    item.innerHTML = '<div class="conv-avatar-wrapper"><div class="conv-avatar-init" style="background:' + bgColor + ';">' + initial + '</div>' + (avatarUrl ? '<img class="conv-avatar" src="' + avatarUrl + '" alt="' + contact.username + '" onload="this.style.opacity=\'1\';this.previousElementSibling.style.display=\'none\';" onerror="this.style.display=\'none\';this.previousElementSibling.style.display=\'flex\';">' : '') + '</div><div class="conv-body"><div class="conv-name">' + contact.username + '</div><div class="conv-preview" id="preview-' + contact.username + '">Tap to open chat</div></div><span class="unread-badge" id="unread-' + contact.username + '"></span>';
+    item.innerHTML = '<div class="conv-avatar-wrapper"><div class="conv-avatar-init" style="background:' + bgColor + ';">' + initial + '</div>' + (avatarUrl ? '<img class="conv-avatar" src="' + avatarUrl + '" alt="' + contact.username + '">' : '') + '</div><div class="conv-body"><div class="conv-name">' + contact.username + '</div><div class="conv-preview" id="preview-' + contact.username + '">Tap to open chat</div></div><span class="unread-badge" id="unread-' + contact.username + '"></span>';
     list.appendChild(item);
   }
 
-  function openConversation(recipient) { var item = document.querySelector('.conversation-item[data-recipient="' + recipient + '"]'); if (item) item.click(); }
+  function openConversation(recipient) {
+    var item = document.querySelector('.conversation-item[data-recipient="' + recipient + '"]');
+    if (item) item.click();
+  }
 
   function markMarketConversations(previewsMap) {
     if (!previewsMap) return;
     document.querySelectorAll('.conversation-item').forEach(function(item) {
-      var recipient = item.getAttribute('data-recipient'), existing = item.querySelector('.market-conv-badge');
+      var recipient = item.getAttribute('data-recipient'),
+          existing = item.querySelector('.market-conv-badge');
       if (previewsMap[recipient] && previewsMap[recipient].has_market_thread) {
-        if (!existing) { var badge = document.createElement('span'); badge.className = 'market-conv-badge'; badge.textContent = '🛒'; badge.title = 'Market conversation'; item.insertBefore(badge, item.querySelector('.unread-badge') || null); }
+        if (!existing) {
+          var badge = document.createElement('span');
+          badge.className = 'market-conv-badge';
+          badge.textContent = '🛒';
+          badge.title = 'Market conversation';
+          item.insertBefore(badge, item.querySelector('.unread-badge') || null);
+        }
         item.setAttribute('data-market', 'true');
-      } else { if (existing) existing.remove(); item.removeAttribute('data-market'); }
+      } else {
+        if (existing) existing.remove();
+        item.removeAttribute('data-market');
+      }
     });
   }
 
-  // ── Public API ────────────────────────────────────────────────────────
   window.Asterix.chat = {
-    loadMessages: loadMessages, sendMessage: sendMessage, replyToMessage: replyToMessage,
-    forwardMessage: forwardMessage, deleteMessage: deleteMessage,
-    addConversationItem: addConversationItem, openConversation: openConversation,
-    clearCache: clearCache, clearChat: clearChat,
-    markMarketConversations: markMarketConversations, renderAllListings: renderAllListings,
+    loadMessages: loadMessages,
+    sendMessage: sendMessage,
+    replyToMessage: replyToMessage,
+    forwardMessage: forwardMessage,
+    deleteMessage: deleteMessage,
+    addConversationItem: addConversationItem,
+    openConversation: openConversation,
+    clearCache: clearCache,
+    clearChat: clearChat,
+    markMarketConversations: markMarketConversations,
+    renderAllListings: renderAllListings,
+    refreshThread: refreshThread,
   };
 
-  // ── Status hub — delegated click handler ──────────────────────────────
-  // Handles clicks on General, Funerals, Weddings, Market, Church, My Status.
-  // Uses data-category (matching sidebar.html) and id for My Status button.
-  // ── Status hub — delegated click handler ──────────────────────────────
-(function wireStatusHub() {
-  var hub = document.getElementById('status-hub');
-  if (!hub) return;
-
-  hub.addEventListener('click', function(e) {
-    var cat = e.target.closest('.status-cat');
-    if (!cat) return;
-    e.stopPropagation();
-
-    // ── My Status button ────────────────────────────────────────
-    if (cat.id === 'open-my-status-btn') {
+  (function wireStatusHub() {
+    var hub = document.getElementById('status-hub');
+    if (!hub) return;
+    hub.addEventListener('click', function(e) {
+      var cat = e.target.closest('.status-cat');
+      if (!cat) return;
+      e.stopPropagation();
+      if (cat.id === 'open-my-status-btn') {
+        var s = window.Asterix && window.Asterix.status;
+        if (s && typeof s.openMyStatus === 'function') { s.openMyStatus(); return; }
+        return;
+      }
+      var catName = cat.getAttribute('data-category');
+      if (!catName) return;
       var s = window.Asterix && window.Asterix.status;
-      if (s && typeof s.openMyStatusPanel === 'function') { s.openMyStatusPanel(); return; }
-      if (s && typeof s.openMyStatus      === 'function') { s.openMyStatus();      return; }
-      // Fallback: show the panel directly
-      var panel   = document.getElementById('my-status-panel');
-      var overlay = document.getElementById('my-status-overlay');
-      if (panel)   { panel.style.display   = 'block'; }
-      if (overlay) { overlay.style.display = 'block'; }
-      return;
-    }
+      if (s && typeof s.open === 'function') { s.open(catName); return; }
+    });
+  })();
 
-    // ── Category buttons ─────────────────────────────────────────
-    var catName = cat.getAttribute('data-category');
-    if (!catName) return;
-
-    // 1. Try Asterix.status API methods
-    var s = window.Asterix && window.Asterix.status;
-    if (s) {
-      if      (typeof s.openCategory   === 'function') { s.openCategory(catName);   return; }
-      else if (typeof s.open           === 'function') { s.open(catName);           return; }
-      else if (typeof s.show           === 'function') { s.show(catName);           return; }
-      else if (typeof s.viewCategory   === 'function') { s.viewCategory(catName);   return; }
-      else if (typeof s.loadCategory   === 'function') { s.loadCategory(catName);   return; }
-      else if (typeof s.startViewer    === 'function') { s.startViewer(catName);    return; }
-      else if (typeof s.openViewer     === 'function') { s.openViewer(catName);     return; }
-    }
-
-    // 2. Try global functions status.js might have put on window
-    if (typeof window.openStatusCategory === 'function') { window.openStatusCategory(catName); return; }
-    if (typeof window.openStatusViewer   === 'function') { window.openStatusViewer(catName);   return; }
-    if (typeof window.viewStatusCategory === 'function') { window.viewStatusCategory(catName); return; }
-
-    // 3. Last resort: click the ring element directly —
-    //    status.js almost certainly has a click listener on it
-    var ring = document.getElementById('ring-' + catName);
-    if (ring) {
-      ring.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      return;
-    }
-
-    console.warn('[chat] Could not open category:', catName,
-      '| Asterix.status:', s,
-      '| window keys:', Object.keys(window).filter(function(k) { return k.toLowerCase().indexOf('status') !== -1; })
-    );
-  });
-})();
-
-  // ── Sidebar conversation list ─────────────────────────────────────────
   if (convList) {
     convList.addEventListener('click', function(e) {
-      var item = e.target.closest('.conversation-item'); if (!item) return;
-      var recipient = item.getAttribute('data-recipient'); if (!recipient) return;
+      var item = e.target.closest('.conversation-item');
+      if (!item) return;
+      var recipient = item.getAttribute('data-recipient');
+      if (!recipient) return;
       document.querySelectorAll('.conversation-item').forEach(function(i) { i.classList.remove('active'); });
-      item.classList.add('active'); hideSidebarOnMobile(); loadMessages(recipient);
+      item.classList.add('active');
+      hideSidebarOnMobile();
+      loadMessages(recipient);
     });
-  } else { console.warn('[chat] Conversation list not found; clicks may not work.'); }
+  }
 
-  // ── DOM events ────────────────────────────────────────────────────────
-  chatContainer.addEventListener('scroll', function() { if (this.scrollTop < 100) loadOlderMessages(); });
-  if (sendBtn)  sendBtn.addEventListener('click', sendMessage);
+  chatContainer.addEventListener('scroll', function() {
+    if (this.scrollTop < 100) loadOlderMessages();
+  });
+  if (sendBtn) sendBtn.addEventListener('click', sendMessage);
   if (msgInput) {
-    msgInput.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
-    msgInput.addEventListener('input', function() { this.style.height = '42px'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; sendBtn.classList.toggle('show', this.value.trim().length > 0 || fileInput.files.length > 0); });
+    msgInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    msgInput.addEventListener('input', function() {
+      this.style.height = '42px';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+      sendBtn.classList.toggle('show', this.value.trim().length > 0 || fileInput.files.length > 0);
+    });
   }
   if (attachBtn) attachBtn.addEventListener('click', function() { fileInput.click(); });
 
-  var isSyncingFileInput = false;
-  function syncFileInputFromSelection() { var dt = new DataTransfer(); selectedFiles.forEach(function(f) { dt.items.add(f); }); isSyncingFileInput = true; fileInput.files = dt.files; setTimeout(function() { isSyncingFileInput = false; }, 0); }
-
-  function addFilesToSelection(incoming) {
-    if (!incoming.length) return;
-    var room = MAX_ATTACH - selectedFiles.length;
-    if (room <= 0) { toast('Too many files', 'You can attach up to ' + MAX_ATTACH + ' files at once.'); return; }
-    if (incoming.length > room) { toast('Too many files', 'Only added ' + room + ' of ' + incoming.length + ' — ' + MAX_ATTACH + ' max per message.'); incoming = incoming.slice(0, room); }
-    selectedFiles = selectedFiles.concat(incoming); syncFileInputFromSelection(); renderAttachmentPreview();
-    sendBtn.classList.toggle('show', msgInput.value.trim().length > 0 || selectedFiles.length > 0);
-  }
-
-  function renderAttachmentPreview() {
-    attachmentPreview.innerHTML = '';
-    selectedFiles.forEach(function(f, idx) {
-      var wrap = document.createElement('div'); wrap.className = 'att-preview-item'; wrap.style.cssText = 'position:relative;display:inline-block;';
-      var isImage = f.type && f.type.indexOf('image/') === 0;
-      if (isImage) { var pi = document.createElement('img'); pi.src = URL.createObjectURL(f); wrap.appendChild(pi); }
-      else { var pp = document.createElement('div'); pp.className = 'att-pill'; pp.innerHTML = '<i class="fas fa-file"></i>' + f.name; wrap.appendChild(pp); }
-      var removeBtn = document.createElement('button'); removeBtn.type = 'button'; removeBtn.className = 'att-remove-btn'; removeBtn.setAttribute('aria-label', 'Remove'); removeBtn.innerHTML = '\u00D7';
-      removeBtn.style.cssText = 'position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.7);color:#fff;border:none;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-      removeBtn.onclick = function(e) { e.stopPropagation(); selectedFiles.splice(idx, 1); syncFileInputFromSelection(); renderAttachmentPreview(); sendBtn.classList.toggle('show', msgInput.value.trim().length > 0 || selectedFiles.length > 0); };
-      wrap.appendChild(removeBtn);
-      if (isImage) {
-        var editBtn = document.createElement('button'); editBtn.type = 'button'; editBtn.className = 'att-edit-btn'; editBtn.setAttribute('aria-label', 'Edit image'); editBtn.innerHTML = '<i class="fas fa-pencil-alt"></i>';
-        editBtn.style.cssText = 'position:absolute;bottom:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:var(--accent2,#25d366);color:#fff;border:none;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.4);';
-        editBtn.onclick = function(e) {
-          e.stopPropagation();
-          if (!(window.Asterix && window.Asterix.mediaEditor && typeof window.Asterix.mediaEditor.openForImage === 'function')) { toast('Error', 'Media editor not available.'); return; }
-          var originalFile = selectedFiles[idx]; if (!originalFile) return;
-          editBtn.disabled = true; editBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-          window.Asterix.mediaEditor.openForImage(originalFile).then(function(editedFile) {
-            editBtn.disabled = false; editBtn.innerHTML = '<i class="fas fa-pencil-alt"></i>';
-            if (!editedFile) return; selectedFiles[idx] = editedFile; syncFileInputFromSelection(); renderAttachmentPreview();
-            sendBtn.classList.toggle('show', msgInput.value.trim().length > 0 || selectedFiles.length > 0);
-          }).catch(function() { editBtn.disabled = false; editBtn.innerHTML = '<i class="fas fa-pencil-alt"></i>'; toast('Error', 'Could not open image editor.'); });
-        };
-        wrap.appendChild(editBtn);
+  if (fileInput) {
+    fileInput.addEventListener('change', function() {
+      var incoming = Array.prototype.slice.call(this.files);
+      if (incoming.length) {
+        selectedFiles = selectedFiles.concat(incoming).slice(0, MAX_ATTACH);
+        sendBtn.classList.toggle('show', true);
       }
-      attachmentPreview.appendChild(wrap);
     });
   }
-
-  if (fileInput) { fileInput.addEventListener('change', function() { if (isSyncingFileInput) return; var incoming = Array.prototype.slice.call(this.files); if (!incoming.length) return; addFilesToSelection(incoming); }); }
-  if (msgInput) { msgInput.addEventListener('paste', function(e) { var items = (e.clipboardData && e.clipboardData.items) || [], pastedFiles = []; for (var i = 0; i < items.length; i++) { var item = items[i]; if (item.kind === 'file' && item.type && /^(image|video)\//.test(item.type)) { var f = item.getAsFile(); if (f) pastedFiles.push(f); } } if (!pastedFiles.length) return; e.preventDefault(); addFilesToSelection(pastedFiles); }); }
 
   if (backBtn) {
     backBtn.addEventListener('click', function() {
       var sidebar = document.getElementById('sidebar');
       if (sidebar) {
-        sidebar.classList.remove('hidden'); backBtn.style.display = 'none'; chatContainer.innerHTML = '';
+        sidebar.classList.remove('hidden');
+        backBtn.style.display = 'none';
+        chatContainer.innerHTML = '';
         chatHeaderInfo.innerHTML = '<div class="no-chat-hint">Select a conversation to start chatting</div>';
-        chatHeaderAvatar.style.display = 'none'; if (gearBtn) gearBtn.style.display = 'none';
-        var cp = document.getElementById('chat-commerce-panel'); if (cp) cp.remove();
-        setMarketThreadMode(false); document.querySelectorAll('.conversation-item').forEach(function(i) { i.classList.remove('active'); });
-        activeRecipient = null; State.activeRecipient = null;
+        chatHeaderAvatar.style.display = 'none';
+        if (gearBtn) gearBtn.style.display = 'none';
+        setMarketThreadMode(false);
+        document.querySelectorAll('.conversation-item').forEach(function(i) { i.classList.remove('active'); });
+        activeRecipient = null;
+        State.activeRecipient = null;
       }
-      if (typeof window.fetchConversationPreviews === 'function') window.fetchConversationPreviews().then(window.applyConversationPreviews);
     });
   }
 
-  if (searchInput) { searchInput.addEventListener('input', function() { var q = this.value.toLowerCase(); document.querySelectorAll('.conversation-item').forEach(function(i) { i.style.display = i.getAttribute('data-recipient').toLowerCase().indexOf(q) !== -1 ? '' : 'none'; }); }); }
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      var q = this.value.toLowerCase();
+      document.querySelectorAll('.conversation-item').forEach(function(i) {
+        i.style.display = i.getAttribute('data-recipient').toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+      });
+    });
+  }
 
-  document.addEventListener('click', function(e) { if (e.target.id === 'forward-modal' && e.target.classList.contains('modal-overlay')) { if (window.Asterix && window.Asterix.messages) window.Asterix.messages._fwdResolve(); } });
-
-  // Sync checkboxes when cart.js fires fz-cart-changed
   document.addEventListener('fz-cart-changed', function(e) {
     var detail = e.detail || {};
     document.querySelectorAll('.chat-product-banner-wrap').forEach(function(wrap) {
-      var cb = wrap.querySelector('.listing-select-cb'); if (!cb) return;
-      if (detail.action === 'cleared' || String(wrap.dataset.statusId) === String(detail.statusId)) cb.checked = false;
+      var cb = wrap.querySelector('.listing-select-cb');
+      if (!cb) return;
+      if (detail.action === 'cleared' || String(wrap.dataset.statusId) === String(detail.statusId)) {
+        cb.checked = false;
+      }
     });
   });
 
   window.addEventListener('online', function() {
-    toast('Online', 'You are back online!'); if (offlineBanner) offlineBanner.classList.remove('show');
-    if (window.Sync) { Sync.flushOutgoingQueue(); Sync.retryFailedMessages(); Sync.flushPendingDeletes(); }
+    toast('Online', 'You are back online!');
+    if (offlineBanner) offlineBanner.classList.remove('show');
+    if (window.Sync) {
+      Sync.flushOutgoingQueue();
+      Sync.retryFailedMessages();
+      Sync.flushPendingDeletes();
+    }
     if (activeRecipient) loadMessages(activeRecipient, true);
   });
-  window.addEventListener('offline', function() { toast('Offline', 'You are offline. Messages will be queued.'); if (offlineBanner) offlineBanner.classList.add('show'); });
-
-  document.body.addEventListener('click', function() {
-    if (!State.audioUnlocked) {
-      State.audioUnlocked = true; var snd = document.getElementById('notif-snd');
-      if (snd) { snd.muted = true; snd.play().then(function() { snd.pause(); snd.currentTime = 0; snd.muted = false; }).catch(function() {}); }
-    }
-  }, { once: true });
+  window.addEventListener('offline', function() {
+    toast('Offline', 'You are offline. Messages will be queued.');
+    if (offlineBanner) offlineBanner.classList.add('show');
+  });
 
   if (typeof pollLoop === 'function') pollLoop();
-  else (function fallbackPoll() { if (window.pollUnread) window.pollUnread().catch(function() {}).finally(function() { setTimeout(fallbackPoll, 3000); }); })();
 
-  console.log('[Asterix] chat.js loaded — basket→cart.js, status hub delegated, banner buttons fixed');
+  console.log('[Asterix] chat.js loaded — enquiry preserved + declined Buy hidden + media proxied');
 })();

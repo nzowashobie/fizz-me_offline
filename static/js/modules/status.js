@@ -790,7 +790,7 @@
       return row;
     }
 
-    rows.appendChild(sheetRow(
+        rows.appendChild(sheetRow(
       '💬', 'Ask the Seller',
       'Send a quick message — free to negotiate in chat',
       'var(--text,#fff)',
@@ -798,79 +798,32 @@
         var item = viewer.playlist[viewer.idx];
         if (!item) return;
         _closeInterestSheetAndClearGrid();
-        _sendEnquiryAndNavigate(item);
+        _sendEnquiryAndNavigate(item, selectedMedia);  // ← pass selectedMedia
       }
     ));
 
-    if (status.is_negotiable) {
-      var offerRow = document.createElement('div');
-      offerRow.style.cssText = [
-        'background:rgba(230,168,23,0.08);border:1px solid rgba(230,168,23,0.2);',
-        'border-radius:14px;padding:13px 16px;'
-      ].join('');
-
-      var offerLabelEl = document.createElement('div');
-      offerLabelEl.style.cssText = 'font-size:14px;font-weight:700;color:#e6a817;margin-bottom:8px;';
-      offerLabelEl.innerHTML     = '🤝 Make an Offer <span style="font-size:11px;font-weight:400;color:var(--sub,#aaa);">— propose your price</span>';
-      offerRow.appendChild(offerLabelEl);
-
-      var offerInputWrap = document.createElement('div');
-      offerInputWrap.style.cssText = 'display:flex;gap:8px;align-items:center;';
-
-      var offerPrefix = document.createElement('span');
-      offerPrefix.style.cssText = 'font-size:15px;font-weight:800;color:#e6a817;flex-shrink:0;';
-      offerPrefix.textContent   = 'K';
-
-      var offerInput = document.createElement('input');
-      offerInput.type        = 'number';
-      offerInput.min         = '1';
-      offerInput.step        = '0.01';
-      offerInput.placeholder = status.price ? parseFloat(status.price).toFixed(2) : 'Your price';
-      offerInput.style.cssText = [
-        'flex:1;background:rgba(255,255,255,0.07);',
-        'border:1px solid rgba(230,168,23,0.3);border-radius:10px;',
-        'padding:9px 12px;color:var(--text,#fff);font-size:15px;font-weight:700;outline:none;'
-      ].join('');
-
-      var offerSendBtn = document.createElement('button');
-      offerSendBtn.style.cssText = [
-        'background:#e6a817;border:none;border-radius:10px;',
-        'padding:9px 16px;font-size:13px;font-weight:700;color:#000;cursor:pointer;',
-        'white-space:nowrap;flex-shrink:0;'
-      ].join('');
-      offerSendBtn.textContent = 'Send';
-
-      // ===== PATCH: offer button now delegates to negotiate.js =====
-      offerSendBtn.onclick = function () {
-        var amt = parseFloat(offerInput.value);
-        if (isNaN(amt) || amt <= 0) {
-          offerInput.style.borderColor = '#f15c6d';
-          offerInput.focus();
-          return;
+        if (status.is_negotiable) {
+      rows.appendChild(sheetRow(
+        '🤝', 'Make an Offer',
+        'Propose your price — the seller can accept or counter',
+        '#e6a817',
+        function () {
+          var item = viewer.playlist[viewer.idx];
+          _closeInterestSheetAndClearGrid();
+          if (window.Asterix && window.Asterix.negotiate) {
+            window.Asterix.negotiate.openBargainSheet(
+              item,          // full listing object from playlist
+              null,          // no existing offer
+              selectedMedia, // selected photo (or null)
+              'offer',
+              null
+            );
+          } else {
+            // fallback if negotiate.js not loaded
+            openOfferModal(status.status_id);
+          }
         }
-        _closeInterestSheetAndClearGrid();
-        var item = viewer.playlist[viewer.idx];
-        if (window.Asterix && window.Asterix.negotiate) {
-          // Delegate to the bargaining sheet – selectedMedia is passed
-          window.Asterix.negotiate.openBargainSheet(
-            item,          // the full status/listing object
-            null,          // no existing offer
-            selectedMedia, // the photo the buyer tapped – THIS is the fix for bug #2
-            'offer',
-            null
-          );
-        } else {
-          // Fallback: old modal
-          openOfferModal(status.status_id);
-        }
-      };
-      // ===== end patch =====
-
-      offerInputWrap.appendChild(offerPrefix);
-      offerInputWrap.appendChild(offerInput);
-      offerInputWrap.appendChild(offerSendBtn);
-      offerRow.appendChild(offerInputWrap);
-      rows.appendChild(offerRow);
+      ));
     }
 
     rows.appendChild(sheetRow(
@@ -926,7 +879,7 @@
   // ─────────────────────────────────────────────────────────────────
   // ENQUIRY HELPER
   // ─────────────────────────────────────────────────────────────────
-  function _sendEnquiryAndNavigate(item) {
+  function _sendEnquiryAndNavigate(item, selectedMedia) {
     if (!item) return;
     var targetUser = item.username;
     if (targetUser === State.ME) { toast('Info', 'That\'s your own listing.'); return; }
@@ -940,13 +893,20 @@
     var quoteLine = '> 🏷️ Listing' +
       (item.caption ? ': ' + item.caption.slice(0, 60) : '') +
       (priceText ? ' — ' + priceText : '');
-    var messageText = quoteLine + '\n\n' + "Hi, I'm interested in your listing. Can you tell me more?";
+    // If a specific grid photo was selected, note it in the message
+    var photoNote = (selectedMedia && selectedMedia.index !== undefined)
+      ? '\n> 📸 Photo ' + (selectedMedia.index + 1) + ' of ' + selectedMedia.total
+      : '';
+    var messageText = quoteLine + photoNote + '\n\n' + "Hi, I'm interested in your listing. Can you tell me more?";
 
     var fd = new FormData();
     fd.append('recipient', targetUser);
     fd.append('message', messageText);
     fd.append('is_status_reply', 'true');
     if (item.status_id) fd.append('status_id', item.status_id);
+
+    // Use the selected photo URL, falling back to the listing's primary media
+    var mediaUrl = (selectedMedia && selectedMedia.url) ? selectedMedia.url : item.media_url;
 
     function finishSend() {
       API.sendMessage(fd)
@@ -966,10 +926,10 @@
         });
     }
 
-    if (item.media_url) {
-      fetchStatusMediaAsBlob(item.media_url)
+        if (mediaUrl) {
+      fetchStatusMediaAsBlob(mediaUrl)
         .then(function (blob) {
-          var filename = item.media_url.split('/').pop().split('?')[0] || 'listing.jpg';
+          var filename = mediaUrl.split('/').pop().split('?')[0] || 'listing.jpg';
           fd.append('files', blob, filename);
           finishSend();
         })
@@ -2047,8 +2007,9 @@
   window.openOfferModal         = openOfferModal;
   window.closeOfferModal        = closeOfferModal;
   window.submitOffer            = submitOffer;
-  window.openInterestSheet      = openInterestSheet;
-  window.closeInterestSheet     = closeInterestSheet;
+  // openInterestSheet is intentionally NOT re-exported to window —
+  // negotiate.js owns window.openInterestSheet to avoid conflicts.
+  window.closeInterestSheet = closeInterestSheet;
   window.openCounterOfferModal  = openCounterOfferModal;
   window.closeCounterOfferModal = closeCounterOfferModal;
   window.submitCounterOffer     = submitCounterOffer;

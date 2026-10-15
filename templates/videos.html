@@ -1,0 +1,85 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Watch videos · Asterix</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+
+  .vid-top{background:#111;padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top,0px));
+    display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #222}
+  .vid-head{display:flex;align-items:center;justify-content:space-between}
+  .vid-head strong{font-size:16px}
+  .vid-back{color:#fff;text-decoration:none;font-size:14px;width:52px}
+  .vid-row{display:flex;gap:8px}
+  #vid-input{flex:1;min-width:0;padding:11px 12px;border-radius:10px;border:1px solid #333;
+    background:#1c1c1c;color:#fff;font-size:16px}
+  #vid-input::placeholder{color:#888}
+  .vid-btn{padding:0 14px;border:0;border-radius:10px;font-size:15px;font-weight:600;color:#fff;
+    background:#2a2a2a;cursor:pointer}
+  #vid-play{background:#128c7e}
+  .vid-btn:disabled{opacity:.6}
+  .vid-status{font-size:13px;color:#8fd3c9;min-height:16px}
+  .vid-status.err{color:#ff8a8a}
+
+  #vid-feed{flex:1;overflow-y:auto;scroll-snap-type:y mandatory;background:#000}
+  .vid-card{position:relative;height:100%;scroll-snap-align:start;display:flex;
+    justify-content:center;align-items:center;background:#000}
+  .vid-card iframe{height:100%;aspect-ratio:9/16;width:auto;max-width:100%;border:0;background:#000}
+  .vid-bar{position:absolute;left:12px;right:12px;bottom:12px;display:flex;justify-content:space-between;
+    align-items:center;font-size:13px;text-shadow:0 1px 2px #000;pointer-events:none;z-index:2}
+  .vid-bar a{color:#fff;pointer-events:auto}
+  .vid-empty{color:#aaa;text-align:center;padding:48px 20px;line-height:1.6}
+  .vid-empty[hidden]{display:none}
+  .vid-sentinel{height:1px}
+
+  #vid-composer{padding:8px 12px;background:#111;border-bottom:1px solid #222}
+  #vid-composer .ck-editor__editable{min-height:80px;max-height:160px;color:#000;background:#fff}
+  .vid-composer-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px}
+  .vid-hint{font-size:12px;color:#888}
+  .vid-note{position:absolute;top:12px;left:12px;right:12px;z-index:2;pointer-events:none;
+    background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:1.4;padding:8px 10px;
+    border-radius:10px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header class="vid-top">
+  <div class="vid-head">
+    <a class="vid-back" href="{% url 'chat-page' %}">← Chats</a>
+    <strong>Watch videos</strong>
+    <span style="width:52px"></span>
+  </div>
+  <form id="vid-form" class="vid-row" autocomplete="off">
+    {% csrf_token %}
+    <input id="vid-input" type="text" inputmode="url" autocapitalize="off" autocorrect="off"
+           spellcheck="false" placeholder="Paste a TikTok, Facebook, Instagram or YouTube link"
+           aria-label="Video link">
+    <button id="vid-paste" class="vid-btn" type="button">Paste</button>
+    <button id="vid-play" class="vid-btn" type="submit">Play</button>
+  </form>
+  <div id="vid-status" class="vid-status" role="status"></div>
+</header>
+
+<section id="vid-composer">
+  <div id="vid-editor"></div>
+  <div class="vid-composer-row">
+    <span class="vid-hint">Write a note and paste a video link, then tap Post.</span>
+    <button id="vid-post" class="vid-btn" type="button">Post</button>
+  </div>
+</section>
+<main id="vid-feed">
+  <div id="vid-empty" class="vid-empty" hidden>
+    No videos yet.<br>
+    Paste a link above and tap <strong>Play</strong>.<br>
+    Every link you paste is saved here, so you can come back to it.
+  </div>
+</main>
+
+<link rel="stylesheet" href="https://cdn.ckeditor.com/ckeditor5/41.4.2/ckeditor5.css">
+<script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js" defer></script>
+<script src="{% static 'chat/asterix_videos/videos_page.js' %}" defer></script>
+</body>
+</html>

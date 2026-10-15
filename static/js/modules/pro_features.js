@@ -123,12 +123,15 @@
     var current  = d.stage;
     var nextS    = d.next_stage;
     var nextActor= d.next_actor;
-    var ci = STAGES.indexOf(current);
+    var LIST = (d.delivery_method === 'collection')
+      ? STAGES.filter(function (s) { return s !== 'in_transit'; })
+      : STAGES;
+    var ci = LIST.indexOf(current);
 
     var html = '<div style="margin-bottom:20px;">';
 
     // Stage timeline
-    STAGES.forEach(function (s, i) {
+    LIST.forEach(function (s, i) {
       var meta    = STAGE_META[s];
       var done    = i <= ci;
       var active  = s === current;
@@ -141,7 +144,7 @@
       html += '      border:2px solid ' + (active ? 'var(--accent2)' : color) + ';';
       html += '      box-shadow:' + (active ? '0 0 0 4px rgba(37,211,102,.2)' : 'none') + ';">';
       html += '      ' + meta.icon + '</div>';
-      if (i < STAGES.length - 1) {
+      if (i < LIST.length - 1) {
         html += '    <div style="width:2px;height:20px;background:' +
           (i < ci ? '#25d366' : 'rgba(255,255,255,.1)') + ';margin-top:4px;"></div>';
       }
@@ -183,6 +186,18 @@
         d.notes + '</div>';
     }
 
+    if (!d.delivery_method && current === 'order_placed') {
+      if (myRole === 'buyer') {
+        html += '<div style="margin-bottom:16px;">';
+        html += '<div style="font-size:13px;color:var(--sub);margin-bottom:8px;">How will you get your item?</div>';
+        html += '<button id="delivery-method-collection" style="width:100%;padding:12px;margin-bottom:8px;background:rgba(37,211,102,.12);border:1px solid rgba(37,211,102,.3);color:var(--text);border-radius:25px;font-weight:600;cursor:pointer;">📍 Collect at the collection point</button>';
+        html += '<button id="delivery-method-delivery" style="width:100%;padding:12px;background:rgba(230,168,23,.12);border:1px solid rgba(230,168,23,.3);color:var(--text);border-radius:25px;font-weight:600;cursor:pointer;">🚚 Seller delivers to me</button>';
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:13px;color:var(--sub);margin-bottom:16px;">Waiting for the buyer to choose collection or delivery.</div>';
+      }
+    }
+
     // Action button
     var canAct = nextS && (
       nextActor === 'both' ||
@@ -205,6 +220,10 @@
       html += 'font-size:13px;font-weight:600;cursor:pointer;">⚠️ Raise Dispute</button>';
     }
 
+    if (current === 'payment_released' && d.receipt_url) {
+      html += '<a href="' + d.receipt_url + '" target="_blank" rel="noopener" style="display:block;text-align:center;margin-top:12px;padding:12px;border-radius:25px;background:#e6a817;color:#000;font-weight:700;text-decoration:none;">🧾 View receipt</a>';
+    }
+
     // Rating prompt if payment released
     if (current === 'payment_released') {
       html += '<div style="margin-top:16px;text-align:center;">';
@@ -225,6 +244,18 @@
     }
 
     body.innerHTML = html;
+
+    // Wire the method chooser (buyer)
+    ['collection', 'delivery'].forEach(function (m) {
+      var mb = document.getElementById('delivery-method-' + m);
+      if (!mb) return;
+      mb.onclick = function () {
+        mb.disabled = true;
+        postJSON('/api/delivery/method/', { deal_id: parseInt(d.deal_id), method: m })
+          .then(function () { _loadDelivery(d.deal_id); toast('🚚', 'Method saved'); })
+          .catch(function (e) { mb.disabled = false; toast('Error', e.message || 'Could not save method'); });
+      };
+    });
 
     // Wire advance
     var advBtn = document.getElementById('delivery-advance-btn');

@@ -1,3 +1,4 @@
+from chat.video_views import video_feed, videos_page, videos_list, videos_add, videos_unseen
 """
 projec/urls.py  —  Project-level URL config
 """
@@ -10,6 +11,11 @@ from django.conf.urls.static import static
 # from chat.admin import custom_admin_site
 
 urlpatterns = [
+    path("videos/", videos_page, name="video_page"),
+    path("videos/feed/", video_feed, name="video_feed"),
+    path("videos/list/", videos_list, name="video_list"),
+    path("videos/add/", videos_add, name="video_add"),
+    path("videos/unseen/", videos_unseen, name="video_unseen"),
     path('admin/', admin.site.urls),
     path('', include('chat.urls')),
 ]

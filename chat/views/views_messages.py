@@ -3,6 +3,12 @@ views_messages.py — All message endpoints:
   get_messages, send_message_http, poll_messages,
   mark_messages_as_read, get_unread_message_count,
   get_conversation_previews, delete_message, clear_chat.
+
+FIX: _serialize_message now embeds 'offer' and 'deal' nested dicts
+     so that negotiate.js buildTransactionCard() can render the
+     Accept / Counter / Decline card instead of falling through to
+     plain text.  select_related('offer', 'deal') is already present
+     in every queryset — this just exposes the data to the frontend.
 """
 
 import json
@@ -23,12 +29,227 @@ from django.views.decorators.http import require_http_methods
 from ..models import Attachment, CustomUser, Message, UserStatus
 from .helpers import (
     _utc_iso, _get_file_url, _get_cloudinary_filename,
-    _fetch_file_bytes, _serialize_message,
+    _fetch_file_bytes,
 )
 from ..push_utils import send_push_notification
 
 User    = get_user_model()
 logger  = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SERIALISATION HELPERS (NEW)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _offer_history(offer):
+    """
+    Every offer in this bargaining chain, oldest first, each with its own note.
+    Walks parent_offer links back to the first offer.
+    """
+    chain = []
+    seen = set()
+    cur = offer
+    while cur is not None and cur.pk not in seen and len(chain) < 50:
+        seen.add(cur.pk)
+        chain.append(cur)
+        cur = cur.parent_offer
+    chain.reverse()
+    return [
+        {
+            "id":          o.pk,
+            "amount":      str(o.amount),
+            "state":       o.state,
+            "proposed_by": o.proposed_by.username,
+            "note":        getattr(o, "note", "") or "",
+            "created_at":  o.created_at.isoformat() if o.created_at else None,
+        }
+        for o in chain
+    ]
+
+
+def _serialize_offer_safe(msg):
+    """
+    Nested offer dict for the card builders, or None.
+    'history' is the whole bargaining chain, including this offer.
+    """
+    try:
+        offer = msg.offer
+        if offer is None:
+            return None
+        return {
+            "id":              offer.pk,
+            "amount":          str(offer.amount),
+            "state":           offer.state,
+            "proposed_by":     offer.proposed_by.username,
+            "note":            getattr(offer, "note", "") or "",
+            "created_at":      offer.created_at.isoformat() if offer.created_at else None,
+            "parent_offer_id": offer.parent_offer_id,
+            "history":         _offer_history(offer),
+        }
+    except Exception:
+        return None
+
+
+def _serialize_deal_safe(msg):
+    """
+    Return the nested deal dict that negotiate.js _buildDealCard() reads,
+    or None when the message has no linked deal.
+    """
+    try:
+        deal = msg.deal
+        if deal is None:
+            return None
+
+        def _username(u):
+            return u.username if hasattr(u, 'username') else str(u)
+
+        return {
+            'id':               deal.pk,
+            'final_price':      str(deal.final_price),
+            'state':            deal.state,
+            'buyer':            _username(deal.buyer),
+            'seller':           _username(deal.seller),
+            'buyer_confirmed':  deal.buyer_confirmed,
+            'seller_confirmed': deal.seller_confirmed,
+            'payment_method':   deal.payment_method or '',
+            'collection_point': getattr(deal, 'collection_point_snapshot', '') or '',
+        }
+    except Exception:
+        return None
+
+
+def _serialize_related_status(status_obj, viewer=None):
+    """
+    Return the listing snapshot dict negotiate.js / chat.js uses, including
+    active_deal_id + final_price so the buyer always sees a Pay button
+    after Buy Now.
+    """
+    if status_obj is None:
+        return None
+    try:
+        media_url = ''
+        try:
+            first = status_obj.media_items.order_by('order', 'id').first()
+            if first:
+                raw = first.file.url if hasattr(first.file, 'url') else str(first.file)
+                media_url = raw.replace('http://', 'https://') if raw else ''
+        except Exception:
+            pass
+        if not media_url:
+            try:
+                legacy = getattr(status_obj, 'media', None)
+                if legacy:
+                    raw = legacy.url if hasattr(legacy, 'url') else str(legacy)
+                    media_url = raw.replace('http://', 'https://') if raw else ''
+            except Exception:
+                pass
+        if not media_url:
+            try:
+                media_url = _get_file_url(getattr(status_obj, 'media', None)) or ''
+            except Exception:
+                pass
+
+        # Compute active deal context for the viewer
+        active_deal_id = None
+        final_price    = None
+        if viewer is not None:
+            try:
+                active = status_obj.deals.filter(
+                    state__in=('pending_confirmation', 'confirmed'),
+                ).filter(
+                    Q(buyer=viewer) | Q(seller=viewer)
+                ).order_by('-created_at').first()
+                if active:
+                    active_deal_id = active.id
+                    final_price    = str(active.final_price)
+            except Exception:
+                pass
+
+        return {
+            'status_id':        status_obj.pk,
+            'username':         status_obj.user.username,
+            'caption':          status_obj.caption or '',
+            'price':            str(status_obj.price) if status_obj.price is not None else None,
+            'is_negotiable':    status_obj.is_negotiable,
+            'media_url':        media_url,
+            'is_commercial':    True,
+            'availability':     status_obj.availability,
+            'collection_point': status_obj.collection_point or '',
+            'active_deal_id':   active_deal_id,
+            'final_price':      final_price,
+        }
+    except Exception:
+        return None
+
+def _serialize_message(msg, viewer=None):
+    """
+    Full message serialisation for both get_messages and poll_messages.
+
+    The critical additions vs the previous version:
+      • 'offer'          — nested offer dict (or null)
+      • 'deal'           — nested deal dict (or null)
+      • 'related_status' — listing snapshot dict (or null)
+
+    These three fields are what negotiate.js reads to decide whether to
+    render a structured commerce card or fall back to plain message text.
+    """
+    # ── Attachments ───────────────────────────────────────────────────
+    attachments = []
+    for att in msg.attachments.all():
+        url = _get_file_url(att.file)
+        if url:
+            attachments.append({
+                'id':        att.id,
+                'file_url':  url,
+                'file_name': getattr(att, 'original_filename', None) or _get_cloudinary_filename(att.file),
+                'file_type': att.file_type or '',
+            })
+
+    # ── Reply context ─────────────────────────────────────────────────
+    reply_to_id = None
+    if msg.reply_to_msg_id:
+        reply_to_id = msg.reply_to_msg_id
+
+    # ── Sender / recipient usernames ──────────────────────────────────
+    sender_username    = msg.sender.username    if msg.sender    else ''
+    recipient_username = msg.recipient.username if msg.recipient else ''
+
+    return {
+        # Core identity
+        'id':           msg.pk,
+        'server_id':    msg.pk,
+
+        # Participants
+        'sender':       sender_username,
+        'username':     sender_username,   # legacy alias some templates use
+        'recipient':    recipient_username,
+
+        # Content
+        'message':      msg.message or '',
+        'message_type': msg.message_type or 'text',
+
+        # Timing / status
+        'timestamp':    _utc_iso(msg.timestamp),
+        'is_read':      msg.is_read,
+
+        # Reply thread
+        'reply_to':     reply_to_id,
+        'reply_sender': msg.reply_sender or '',
+        'reply_text':   msg.reply_text   or '',
+        'reply_media':  msg.reply_media  or '',
+
+        # Files
+        'attachments': attachments,
+
+        # ── Commerce fields (THE FIX) ─────────────────────────────────
+        # These were missing: without them buildTransactionCard() had
+        # no nested offer/deal to read, so every negotiation message
+        # rendered as plain text instead of the structured card.
+        'offer':          _serialize_offer_safe(msg),
+        'deal':           _serialize_deal_safe(msg),
+        'related_status': _serialize_related_status(msg.related_status),
+        # ─────────────────────────────────────────────────────────────
+    }
 
 
 # ─── Read ──────────────────────────────────────────────────────────────────
@@ -140,7 +361,8 @@ def get_unread_message_count(request):
 def get_conversation_previews(request):
     """
     Per-contact unread count + last-message snippet for the sidebar.
-    Powers unread badge + preview without a full page reload.
+    Also flags conversations that contain market/offer messages so
+    chat.js can badge them with the 🛒 Market pill.
     """
     me = request.user
 
@@ -173,11 +395,13 @@ def get_conversation_previews(request):
             'timestamp': _utc_iso(m.timestamp),
             'from_me':   m.sender_id == me.id,
             'unread':    0,
+            'has_market_thread': False,   # NEW – will be set below
         }
 
+    # Unread counts
     unread_rows = (
         Message.objects
-        .filter(recipient=me, is_read=False)
+        .filter(recipient=me, is_read=False, cleared_by_recipient=False)
         .values('sender__username')
         .annotate(count=Count('id'))
     )
@@ -189,7 +413,24 @@ def get_conversation_previews(request):
             previews[who] = {
                 'preview': '', 'timestamp': None,
                 'from_me': False, 'unread': row['count'],
+                'has_market_thread': False,
             }
+
+    # Market thread flag — any conversation with a commercial related_status
+    market_contacts = (
+        Message.objects
+        .filter(
+            Q(sender=me, cleared_by_sender=False) | Q(recipient=me, cleared_by_recipient=False),
+            related_status__isnull=False,
+            related_status__is_commercial=True,
+        )
+        .values_list('sender__username', 'recipient__username')
+        .distinct()
+    )
+    for sender_u, recipient_u in market_contacts:
+        other = recipient_u if sender_u == me.username else sender_u
+        if other in previews:
+            previews[other]['has_market_thread'] = True
 
     return JsonResponse(previews)
 
@@ -336,10 +577,7 @@ def send_message_http(request):
         "message": _serialize_message(msg, viewer=request.user),
     }
 
-    # ── Web Push (best-effort, never affects the response above) ───────
-    # Placed after the message + attachments are fully saved and the
-    # success payload is already built, so a push failure here can never
-    # turn a successful send into an error response.
+    # ── Web Push (best-effort) ─────────────────────────────────────────
     try:
         if message_text:
             preview = message_text[:80]
@@ -355,7 +593,7 @@ def send_message_http(request):
             tag=f'chat-{request.user.username}',
         )
     except Exception:
-        pass  # send_push_notification already never raises — belt and braces.
+        pass
 
     return JsonResponse(response_payload)
 
