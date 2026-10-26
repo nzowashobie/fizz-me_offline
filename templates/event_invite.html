@@ -214,6 +214,19 @@
     }
     .footer a { color: #475569; text-decoration: none; }
   </style>
+    <style>
+      .rsvp-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .rsvp-btn.active-accept:disabled,
+      .rsvp-btn.active-maybe:disabled,
+      .rsvp-btn.active-decline:disabled {
+        opacity: 1;
+        cursor: default;
+        box-shadow: 0 0 12px rgba(255,255,255,0.1);
+      }
+    </style>
 </head>
 <body>
 
@@ -306,13 +319,13 @@
   {% if request.user.is_authenticated %}
   <div class="rsvp-section">
     <div class="rsvp-title">Your RSVP</div>
-    <div class="rsvp-btns">
+    <div class="rsvp-btns" id="rsvp-btns">
       <button class="rsvp-btn accept {% if your_rsvp == 'accepted' %}active-accept{% endif %}"
-              onclick="sendRsvp('accepted', this)">✅ Attending</button>
+              onclick="sendRsvp('accepted', this)" {% if your_rsvp and your_rsvp != 'pending' %}disabled{% endif %}>✅ Attending</button>
       <button class="rsvp-btn maybe {% if your_rsvp == 'maybe' %}active-maybe{% endif %}"
-              onclick="sendRsvp('maybe', this)">🤔 Maybe</button>
+              onclick="sendRsvp('maybe', this)" {% if your_rsvp and your_rsvp != 'pending' %}disabled{% endif %}>🤔 Maybe</button>
       <button class="rsvp-btn decline {% if your_rsvp == 'declined' %}active-decline{% endif %}"
-              onclick="sendRsvp('declined', this)">❌ Can't Go</button>
+              onclick="sendRsvp('declined', this)" {% if your_rsvp and your_rsvp != 'pending' %}disabled{% endif %}>❌ Can't Go</button>
     </div>
     <div class="rsvp-status-msg" id="rsvp-msg">
       {% if your_rsvp %}
@@ -326,9 +339,9 @@
   </a>
   {% endif %}
 
-  <!-- Open in Asterix app -->
-  <a href="asterix://chat/{{ event.host.username }}" class="open-app-btn">
-    <i class="fas fa-comment-dots"></i> Open in Asterix
+  <!-- Open in Fizzme app -->
+  <a href="/?chat={{ event.host.username }}" class="open-app-btn">
+    <i class="fas fa-comment-dots"></i> Chat with {{ event.host.username }}
   </a>
 
   <!-- Share -->
@@ -344,16 +357,19 @@
 </div>
 
 <div class="footer">
-  Powered by <a href="https://fizzme.pythonanywhere.com">Asterix</a> · Zambia's community chat
+  Powered by <a href="https://fizzme.pythonanywhere.com">Fizzme</a> · Zambia's community chat
 </div>
 
 <script>
   var EVENT_ID     = {{ event.id }};
   var CSRF         = '{{ csrf_token }}';
   var INVITE_URL   = window.location.href;
-  var EVENT_TITLE  = {{ event.title|escapejs|json_script:"" }};
+  var EVENT_TITLE  = "{{ event.title|escapejs }}";
 
   function sendRsvp(choice, btn) {
+    // Disable all buttons immediately
+    document.querySelectorAll('.rsvp-btn').forEach(function(b) { b.disabled = true; });
+    
     fetch('/api/events/' + EVENT_ID + '/rsvp/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
@@ -363,7 +379,6 @@
     .then(function(d) {
       var msg = document.getElementById('rsvp-msg');
       if (d.status === 'success') {
-        // Clear active classes
         document.querySelectorAll('.rsvp-btn').forEach(function(b) {
           b.classList.remove('active-accept','active-decline','active-maybe');
         });
@@ -372,11 +387,14 @@
         msg.textContent = 'Your response: ' + choice;
         msg.style.color = '#22c55e';
       } else {
+        // Re-enable if server rejects
+        document.querySelectorAll('.rsvp-btn').forEach(function(b) { b.disabled = false; });
         msg.textContent = d.error || 'Could not save RSVP.';
         msg.style.color = '#ef4444';
       }
     })
     .catch(function() {
+      document.querySelectorAll('.rsvp-btn').forEach(function(b) { b.disabled = false; });
       document.getElementById('rsvp-msg').textContent = 'Network error — try again.';
     });
   }

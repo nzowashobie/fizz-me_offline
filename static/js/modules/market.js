@@ -10,7 +10,7 @@
       .split('; ')
       .find(function (r) { return r.startsWith('csrftoken='); });
     return cookie
-      ? cookie.split('=')[1]
+      ? decodeURIComponent(cookie.split('=')[1])
       : (window.ASTERIX && window.ASTERIX.CSRF) || '';
   }
 
@@ -40,6 +40,7 @@
     captionInput:   document.getElementById('mp-caption'),
     captionCount:   document.getElementById('mp-caption-count'),
     priceInput:     document.getElementById('mp-price'),
+    quantityInput:  document.getElementById('mp-quantity'),
     availSel:       document.getElementById('mp-availability'),
     negotiableChk:  document.getElementById('mp-negotiable'),
     customTagInput: document.getElementById('mp-custom-tag'),
@@ -121,7 +122,6 @@
     state.selectedCategory = 'clothing';
     state.editStatusId = null;
     state.isEditMode = false;
-    // FIX: use onclick only — no addEventListener on postBtn to avoid double-fire
     dom.postBtn.onclick = postListing;
     dom.postBtn.textContent = 'Post to Market';
     gotoStep(1);
@@ -132,6 +132,7 @@
     dom.captionInput.value = '';
     dom.captionCount.textContent = '0';
     dom.priceInput.value = '';
+    if (dom.quantityInput) dom.quantityInput.value = '1';
     dom.availSel.value = 'available';
     dom.negotiableChk.checked = false;
     dom.customTagInput.value = '';
@@ -213,7 +214,6 @@
     }
     if (!valid.length) return;
 
-    // Merge with anything already selected, cap at MAX_MEDIA
     var combined = state.selectedFiles.concat(valid);
     if (combined.length > MAX_MEDIA) {
       showToast('Too many files', 'Only the first ' + MAX_MEDIA + ' photos/videos will be used.');
@@ -238,7 +238,6 @@
     dom.dropZone.classList.add('has-media');
     dom.removeMediaBtn.style.display = 'flex';
 
-    // Show/hide "add more" button
     var addMoreBtn = document.getElementById('mp-add-more');
     if (addMoreBtn) {
       addMoreBtn.style.display = (files.length > 0 && files.length < MAX_MEDIA) ? 'flex' : 'none';
@@ -264,7 +263,6 @@
       return;
     }
 
-    // Multi-media path — Facebook-style grid
     dom.previewImg.style.display = 'none';
     dom.previewVid.style.display = 'none';
     dom.multiGrid.style.display = 'grid';
@@ -290,7 +288,8 @@
         cell.innerHTML = '<i class="fas fa-play-circle" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;"></i>';
       } else {
         var url = URL.createObjectURL(f);
-        cell.style.backgroundImage = 'url(' + url + ')';
+        // Added onerror fallback for broken images
+        cell.innerHTML = '<img src="' + url + '" onerror="this.src=\'data:image/svg+xml;utf8,<svg xmlns=\\\'http://www.w3.org/2000/svg\\\' width=\\\'100\\\' height=\\\'100\\\'><text x=\\\'50%\\\' y=\\\'50%\\\' dominant-baseline=\\\'middle\\\' text-anchor=\\\'middle\\\' font-size=\\\'40\\\'>🖼️</text></svg>\'; this.style.objectFit=\'contain\';" style="width:100%;height:100%;object-fit:contain;background:#000;">';
       }
       if (i === 3 && count > 4) {
         var more = document.createElement('span');
@@ -328,7 +327,6 @@
     dom.dropZone.classList.remove('has-media');
     dom.removeMediaBtn.style.display = 'none';
     dom.fileInput.value = '';
-    // Hide add-more button
     var addMoreBtn = document.getElementById('mp-add-more');
     if (addMoreBtn) addMoreBtn.style.display = 'none';
   }
@@ -413,6 +411,7 @@
     fd.append('category', 'Market');
     fd.append('is_commercial', 'true');
     fd.append('price', price);
+    if (dom.quantityInput) fd.append('quantity', dom.quantityInput.value.trim() || '1');
     fd.append('is_negotiable', dom.negotiableChk.checked ? 'true' : 'false');
     fd.append('availability', dom.availSel.value || 'available');
     fd.append('product_category', state.selectedCategory);
@@ -426,7 +425,11 @@
       headers: { 'X-CSRFToken': getCsrf() },
       body: fd,
     })
-      .then(function (r) { return r.json(); })
+      .then(function(r) {
+        return r.text().then(function(text) {
+          try { return JSON.parse(text); } catch(e) { throw new Error('Server returned ' + r.status + ': ' + (text.substring(0, 100) || 'No response')); }
+        });
+      })
       .then(function (data) {
         dom.postBtn.disabled = false;
         dom.postBtn.innerHTML = '<i class="fas fa-store"></i> Post to Market';
@@ -444,10 +447,10 @@
           setPostMsg('❌ ' + (data.error || 'Something went wrong. Please try again.'), 'err');
         }
       })
-      .catch(function () {
+      .catch(function (err) {
         dom.postBtn.disabled = false;
         dom.postBtn.innerHTML = '<i class="fas fa-store"></i> Post to Market';
-        setPostMsg('❌ Network error. Check your connection.', 'err');
+        setPostMsg('❌ ' + (err.message || 'Network error. Check your connection.'), 'err');
       });
   }
 
@@ -491,6 +494,7 @@
       state.selectedCategory = cat;
       dom.captionInput.value = statusData.caption || '';
       dom.priceInput.value = statusData.price || '';
+      if (dom.quantityInput) dom.quantityInput.value = statusData.quantity || 1;
       dom.availSel.value = statusData.availability || 'available';
       dom.negotiableChk.checked = statusData.is_negotiable || false;
       dom.customTagInput.value = statusData.custom_tag || '';
@@ -518,6 +522,7 @@
     fd.append('category', 'Market');
     fd.append('is_commercial', 'true');
     fd.append('price', price);
+    if (dom.quantityInput) fd.append('quantity', dom.quantityInput.value.trim() || '1');
     fd.append('is_negotiable', dom.negotiableChk.checked ? 'true' : 'false');
     fd.append('availability', dom.availSel.value || 'available');
     fd.append('product_category', state.selectedCategory);
@@ -536,7 +541,11 @@
       headers: { 'X-CSRFToken': getCsrf() },
       body: fd,
     })
-      .then(function (r) { return r.json(); })
+      .then(function(r) {
+        return r.text().then(function(text) {
+          try { return JSON.parse(text); } catch(e) { throw new Error('Server returned ' + r.status + ': ' + (text.substring(0, 100) || 'No response')); }
+        });
+      })
       .then(function (data) {
         dom.postBtn.disabled = false;
         dom.postBtn.textContent = '🔄 Update Listing';
@@ -554,10 +563,10 @@
           setPostMsg('❌ ' + (data.error || 'Something went wrong.'), 'err');
         }
       })
-      .catch(function () {
+      .catch(function (err) {
         dom.postBtn.disabled = false;
         dom.postBtn.textContent = '🔄 Update Listing';
-        setPostMsg('❌ Network error. Check your connection.', 'err');
+        setPostMsg('❌ ' + (err.message || 'Network error. Check your connection.'), 'err');
       });
   }
 
@@ -618,8 +627,6 @@
     }
   });
 
-  // FIX: reset value after each pick so same file can be re-selected
-  // and so picking files one-at-a-time on mobile accumulates correctly
   dom.fileInput.addEventListener('change', function () {
     if (this.files && this.files.length) {
       handleFiles(this.files);
@@ -632,7 +639,6 @@
     clearMediaPreview();
   });
 
-  // Add-more button — wired after DOM is ready
   var addMoreBtn = document.getElementById('mp-add-more');
   if (addMoreBtn) {
     addMoreBtn.addEventListener('click', function (e) {
@@ -661,9 +667,6 @@
     if (validateStep2()) gotoStep(3);
   });
   dom.back3.addEventListener('click', function () { gotoStep(2); });
-
-  // NOTE: postBtn is wired via onclick in resetPanel() only — no addEventListener here
-  // to prevent double-firing
 
   // ── Expose public API ─────────────────────────────────────────────
   window.Asterix = window.Asterix || {};

@@ -55,7 +55,7 @@
     }
     if (isInCart(status.status_id)) return true; // already there — no-op, not an error
 
-    // ── FIX 4: resolve the best thumbnail URL at add-time and store it.
+   
     // Priority: the photo the buyer explicitly selected in the status viewer
     // → the most-recently seen reply_media URL from chat messages
     // → the listing's default media_url.
@@ -77,7 +77,7 @@
       _latest_reply_media:  status._latest_reply_media || '',
     });
     saveCart();
-    toast('🧺 Added to basket', status.caption || 'Item');
+    toast('Added to basket', status.caption || 'Item');
     return true;
   }
 
@@ -136,7 +136,7 @@
       'cursor:pointer;-webkit-tap-highlight-color:transparent;',
     ].join('');
     fabEl.innerHTML =
-      '<span style="font-size:20px;">🧺</span>' +
+      '<span style="font-size:20px;"></span>' +
       '<span id="fz-cart-fab-badge" style="' +
         'position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;' +
         'border-radius:10px;background:#25d366;color:#000;font-size:11px;' +
@@ -184,7 +184,7 @@
     var html = items.map(function(item) {
       var price = 'K' + parseFloat(item.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 });
 
-      // ── FIX 4: use the pre-resolved thumbnail stored at add-time.
+      
       // This means the photo the buyer chose in the status viewer shows
       // here instead of always the listing's default first photo.
       var thumbUrl    = item._resolved_thumb || item.media_url || '';
@@ -212,7 +212,7 @@
         ? '<img class="cart-thumb" src="' + safeUrl + '" '
           + 'data-fallback="' + safeFallback + '" '
           + 'style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;">'
-        : '<div style="width:44px;height:44px;background:var(--mid);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;">🏷️</div>';
+        : '<div style="width:44px;height:44px;background:var(--mid);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;"></div>';
 
       return [
         '<div class="cart-item-row" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">',
@@ -242,7 +242,7 @@
         console.warn('[Cart] all thumb URLs failed:', img.src);
         var ph = document.createElement('div');
         ph.style.cssText = 'width:44px;height:44px;background:var(--mid);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;';
-        ph.textContent = '🏷️';
+        ph.textContent = '';
         img.replaceWith(ph);
       }
       img.addEventListener('error', _fail);
@@ -303,10 +303,20 @@
 
     document.getElementById('cart-clear-btn').addEventListener('click', function() {
       if (!getCount()) return;
-      if (confirm('Remove all items from your basket?')) {
-        clearCart();
-        document.dispatchEvent(new CustomEvent('fz-cart-changed', { detail: { action: 'cleared' } }));
-      }
+      Swal.fire({
+        title: 'Clear Basket?',
+        text: 'Remove all items from your basket?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#f15c6d',
+        cancelButtonColor: '#444',
+        confirmButtonText: 'Yes, clear'
+      }).then(function (result) {
+        if (result.isConfirmed) {
+          clearCart();
+          document.dispatchEvent(new CustomEvent('fz-cart-changed', { detail: { action: 'cleared' } }));
+        }
+      });
     });
 
     document.getElementById('cart-checkout-btn').addEventListener('click', function() {

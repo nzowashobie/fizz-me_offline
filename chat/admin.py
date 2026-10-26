@@ -24,8 +24,10 @@ from .models import (
     DeliveryTracking,
     SellerRating,
     ListingBump,
-    StatusMedia,         # ← NEW
-    PushSubscription,    # ← NEW
+    StatusMedia,
+    PushSubscription,
+    VideoEmbed,      # ← NEW
+    SharedVideo,     # ← NEW
 )
 
 
@@ -42,7 +44,7 @@ def _media_url(obj_media):
 
 
 def _media_extension(url):
-    """Best‑effort extension guess from the resolved URL."""
+    """Best-effort extension guess from the resolved URL."""
     if not url:
         return ''
     try:
@@ -73,6 +75,13 @@ def render_media_preview(url, max_size=100):
     return format_html('<a href="{}" target="_blank">View file</a>', url)
 
 
+def _shorten(text, length=50):
+    """Truncate text for list views."""
+    if not text:
+        return '-'
+    return text[:length] + ('...' if len(text) > length else '')
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -80,14 +89,15 @@ def render_media_preview(url, max_size=100):
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     """Custom admin for CustomUser model."""
-    list_display = ('username', 'email', 'phone_number', 'is_active', 'is_staff', 'date_joined')
+    list_display = ('username', 'email', 'phone_number', 'is_active', 'is_staff', 'last_seen', 'date_joined')
     list_filter = ('is_active', 'is_staff', 'is_superuser', 'date_joined')
     search_fields = ('username', 'email', 'phone_number')
     ordering = ('-date_joined',)
+    readonly_fields = ('last_seen',)
 
     fieldsets = UserAdmin.fieldsets + (
         ('Additional Info', {
-            'fields': ('phone_number', 'public_key'),
+            'fields': ('phone_number', 'public_key', 'last_seen'),
             'classes': ('wide',),
         }),
     )
@@ -157,7 +167,7 @@ class AttachmentInline(admin.TabularInline):
     """Inline admin for attachments within a message."""
     model = Attachment
     extra = 0
-    fields = ('file', 'file_type', 'uploaded_at')
+    fields = ('file', 'original_filename', 'file_type', 'uploaded_at')
     readonly_fields = ('uploaded_at',)
 
 
@@ -197,9 +207,7 @@ class MessageAdmin(admin.ModelAdmin):
     actions = ['mark_as_read', 'mark_as_unread', 'hard_delete_selected']
 
     def message_preview(self, obj):
-        if len(obj.message) > 50:
-            return f"{obj.message[:50]}..."
-        return obj.message
+        return _shorten(obj.message, 50)
     message_preview.short_description = 'Message Preview'
 
     def clear_status(self, obj):
@@ -230,9 +238,13 @@ class MessageAdmin(admin.ModelAdmin):
 @admin.register(Attachment)
 class AttachmentAdmin(admin.ModelAdmin):
     """Admin for file attachments."""
-    list_display = ('id', 'message_link', 'file_preview', 'file_type', 'uploaded_at')
+    list_display = ('id', 'message_link', 'file_preview', 'original_filename', 'file_type', 'uploaded_at')
     list_filter = ('file_type', 'uploaded_at')
-    search_fields = ('message__sender__username', 'message__recipient__username',)
+    search_fields = (
+        'original_filename',
+        'message__sender__username',
+        'message__recipient__username',
+    )
     raw_id_fields = ('message',)
     date_hierarchy = 'uploaded_at'
     readonly_fields = ('uploaded_at', 'file_preview')
@@ -288,7 +300,7 @@ class StatusCategoryAdmin(admin.ModelAdmin):
 
 
 class StatusMediaInline(admin.TabularInline):
-    """Inline admin for multi‑image StatusMedia rows within a UserStatus."""
+    """Inline admin for multi-image StatusMedia rows within a UserStatus."""
     model = StatusMedia
     extra = 0
     fields = ('order', 'file', 'media_preview')
@@ -304,9 +316,9 @@ class StatusMediaInline(admin.TabularInline):
 class UserStatusAdmin(admin.ModelAdmin):
     """Admin for user statuses."""
     list_display = (
-        'id', 'user', 'category', 'is_commercial', 'price',
+        'id', 'user', 'category', 'is_commercial', 'price', 'quantity',
         'availability', 'product_category', 'media_preview', 'caption_preview',
-        'created_at'
+        'expires_at', 'bump_count', 'created_at'
     )
     list_filter = (
         'is_commercial', 'availability', 'product_category', 'category', 'created_at'
@@ -315,7 +327,7 @@ class UserStatusAdmin(admin.ModelAdmin):
     raw_id_fields = ('user', 'category')
     date_hierarchy = 'created_at'
     readonly_fields = ('created_at', 'media_preview')
-    inlines = [StatusMediaInline]   # ← NEW
+    inlines = [StatusMediaInline]
 
     fieldsets = (
         ('Status Info', {
@@ -326,7 +338,7 @@ class UserStatusAdmin(admin.ModelAdmin):
         }),
         ('Commerce Extension', {
             'fields': (
-                'is_commercial', 'price', 'is_negotiable',
+                'is_commercial', 'price', 'is_negotiable', 'quantity',
                 'availability', 'product_category', 'custom_tag', 'collection_point'
             )
         }),
@@ -341,9 +353,7 @@ class UserStatusAdmin(admin.ModelAdmin):
     )
 
     def caption_preview(self, obj):
-        if obj.caption:
-            return obj.caption[:50] + ('...' if len(obj.caption) > 50 else '')
-        return "-"
+        return _shorten(obj.caption, 50)
     caption_preview.short_description = 'Caption'
 
     def media_preview(self, obj):
@@ -353,7 +363,7 @@ class UserStatusAdmin(admin.ModelAdmin):
 
 @admin.register(StatusMedia)
 class StatusMediaAdmin(admin.ModelAdmin):
-    """Admin for the extra images attached to a UserStatus (multi‑image)."""
+    """Admin for the extra images attached to a UserStatus (multi-image)."""
     list_display = ('id', 'status', 'order', 'media_preview')
     list_filter = ('status__category',)
     search_fields = ('status__caption', 'status__user__username')
@@ -383,6 +393,7 @@ class AdCampaignAdmin(admin.ModelAdmin):
     search_fields = ('advertiser_name', 'category__name')
     date_hierarchy = 'created_at'
     readonly_fields = ('created_at', 'media_preview')
+    actions = ['toggle_active']   # ← FIX: action was defined but never registered
 
     fieldsets = (
         ('Advertiser Info', {
@@ -484,8 +495,6 @@ class OfferAdmin(admin.ModelAdmin):
         ('Parties', {
             'fields': ('buyer', 'seller', 'proposed_by')
         }),
-        # FIX: 'note' was missing from fieldsets even though it appears in
-        # list_display — this made the bargain note un-editable via admin.
         ('Offer Details', {
             'fields': ('amount', 'state', 'parent_offer', 'note')
         }),
@@ -499,11 +508,14 @@ class OfferAdmin(admin.ModelAdmin):
 class DealAdmin(admin.ModelAdmin):
     """Admin for confirmed deals."""
     list_display = (
-        'id', 'status', 'buyer', 'seller', 'final_price', 'state',
+        'id', 'status', 'buyer', 'seller', 'final_price', 'payment_method', 'state',
         'buyer_confirmed', 'seller_confirmed', 'created_at'
     )
-    list_filter = ('state', 'buyer_confirmed', 'seller_confirmed', 'created_at')
-    search_fields = ('status__caption', 'buyer__username', 'seller__username')
+    list_filter = ('state', 'payment_method', 'buyer_confirmed', 'seller_confirmed', 'created_at')
+    search_fields = (
+        'status__caption', 'buyer__username', 'seller__username',
+        'payment_reference', 'payment_account',
+    )
     raw_id_fields = ('status', 'buyer', 'seller', 'offer')
     date_hierarchy = 'created_at'
     readonly_fields = ('created_at', 'updated_at')
@@ -516,7 +528,11 @@ class DealAdmin(admin.ModelAdmin):
             'fields': ('buyer', 'seller')
         }),
         ('Financial', {
-            'fields': ('final_price', 'payment_method', 'payment_account', 'payment_reference')
+            'fields': (
+                'final_price', 'payment_method', 'payment_account',
+                'payment_reference', 'payment_instructions',
+                'payment_proof', 'payment_proof_at',
+            )
         }),
         ('Delivery', {
             'fields': ('collection_point_snapshot', 'delivery_address', 'delivery_instructions')
@@ -533,8 +549,11 @@ class DealAdmin(admin.ModelAdmin):
 @admin.register(DeliveryTracking)
 class DeliveryTrackingAdmin(admin.ModelAdmin):
     """Admin for delivery / escrow tracking."""
-    list_display = ('id', 'deal', 'stage', 'seller_confirmed_at', 'in_transit_at', 'delivered_at', 'payment_released_at')
-    list_filter = ('stage', 'created_at')
+    list_display = (
+        'id', 'deal', 'delivery_method', 'stage',
+        'seller_confirmed_at', 'in_transit_at', 'delivered_at', 'payment_released_at'
+    )
+    list_filter = ('stage', 'delivery_method', 'created_at')
     search_fields = ('deal__id', 'deal__status__caption')
     raw_id_fields = ('deal',)
     date_hierarchy = 'created_at'
@@ -542,7 +561,7 @@ class DeliveryTrackingAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Deal', {
-            'fields': ('deal',)
+            'fields': ('deal', 'delivery_method')
         }),
         ('Current Stage', {
             'fields': ('stage', 'notes')
@@ -558,7 +577,7 @@ class DeliveryTrackingAdmin(admin.ModelAdmin):
 
 @admin.register(SellerRating)
 class SellerRatingAdmin(admin.ModelAdmin):
-    """Admin for post‑deal ratings (buyer→seller and seller→buyer)."""
+    """Admin for post-deal ratings (buyer→seller and seller→buyer)."""
     list_display = ('id', 'deal', 'seller_score', 'buyer_score', 'created_at')
     list_filter = ('created_at',)
     search_fields = ('deal__id', 'deal__buyer__username', 'deal__seller__username')
@@ -594,6 +613,70 @@ class ListingBumpAdmin(admin.ModelAdmin):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ONLINE VIDEOS ADMIN  (NEW)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin.register(VideoEmbed)
+class VideoEmbedAdmin(admin.ModelAdmin):
+    """Admin for video links embedded inside chat messages."""
+    list_display = ('id', 'message', 'provider', 'source_url_short', 'created_at')
+    list_filter = ('provider', 'created_at')
+    search_fields = ('source_url', 'embed_url', 'provider')
+    raw_id_fields = ('message',)
+    date_hierarchy = 'created_at'
+    readonly_fields = ('created_at',)
+
+    fieldsets = (
+        ('Message', {
+            'fields': ('message',)
+        }),
+        ('Video', {
+            'fields': ('provider', 'source_url', 'embed_url')
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def source_url_short(self, obj):
+        return _shorten(obj.source_url, 60)
+    source_url_short.short_description = 'Source URL'
+
+
+@admin.register(SharedVideo)
+class SharedVideoAdmin(admin.ModelAdmin):
+    """Admin for videos pasted on the Videos page."""
+    list_display = ('id', 'user', 'provider', 'source_url_short', 'note_preview', 'created_at')
+    list_filter = ('provider', 'created_at')
+    search_fields = ('user__username', 'source_url', 'embed_url', 'note')
+    raw_id_fields = ('user',)
+    date_hierarchy = 'created_at'
+    readonly_fields = ('created_at',)
+
+    fieldsets = (
+        ('Owner', {
+            'fields': ('user',)
+        }),
+        ('Video', {
+            'fields': ('provider', 'source_url', 'embed_url', 'note')
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def source_url_short(self, obj):
+        return _shorten(obj.source_url, 60)
+    source_url_short.short_description = 'Source URL'
+
+    def note_preview(self, obj):
+        return _shorten(obj.note, 50)
+    note_preview.short_description = 'Note'
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # WEB PUSH ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -621,7 +704,7 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
         ('Device Info', {
             'fields': ('user_agent', 'last_seen_ok_at')
         }),
-        ('Subscription Keys (read‑only)', {
+        ('Subscription Keys (read-only)', {
             'fields': ('endpoint', 'p256dh', 'auth'),
             'classes': ('collapse',),
             'description': 'Raw Web Push subscription data. Do not edit manually.'

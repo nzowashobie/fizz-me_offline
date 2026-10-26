@@ -94,7 +94,7 @@
           ? '\u23F3 Checking\u2026'
           : checkFailed
             ? '\u26A0\uFE0F Unknown'
-            : (regInfo ? '\u2705 On Asterix' : '\uD83D\uDCF1 Invite');
+            : (regInfo ? '\u2705 On Fizzme' : '\uD83D\uDCF1 Invite');
 
         div.innerHTML = avatarHtml +
           '<div>' +
@@ -138,7 +138,7 @@
                 okClass: 'primary'
               }).then(function(ok) {
                 if (ok && window.AndroidBridge && window.AndroidBridge.sendSms) {
-                  window.AndroidBridge.sendSms(contact.phone, 'Join me on Asterix! https://fizzme.pythonanywhere.com');
+                  window.AndroidBridge.sendSms(contact.phone, 'Join me on Fizzme! https://fizzme.pythonanywhere.com');
                   toast('Invite sent', 'SMS sent to ' + (contact.name || ''));
                 }
               });

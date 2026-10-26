@@ -8,7 +8,7 @@ var API = (function() {
     return cookie ? cookie.split('=')[1] : '';
   }
 
-  // ── IMPROVED request: always read as text first ────────────
+  // request: always read as text first ────────────
   function request(method, url, data, isFormData) {
     var options = {
       method: method,
@@ -50,10 +50,6 @@ var API = (function() {
     return request('GET', '/api/messages/' + params);
   }
 
-  // ── Poll: lightweight — only messages newer than afterId ────────────
-  // Called by polling.js every 3 s. Always returns a JSON array from
-  // the dedicated /api/messages/poll/ endpoint which never returns a
-  // dict on error, so res.data.length is always safe to check.
   function pollMessages(recipient, afterId) {
     return request(
       'GET',
@@ -112,6 +108,16 @@ var API = (function() {
     return request('GET', '/api/status/feed/' + encodeURIComponent(category) + '/');
   }
 
+
+  function recordStatusView(statusId) {
+    return request('POST', '/api/status/view/', { status_id: statusId });
+  }
+
+
+  function getStatusViews(statusId) {
+    return request('GET', '/api/status/' + statusId + '/views/');
+  }
+
   function uploadStatus(formData) {
     return request('POST', '/api/status/upload/', formData, true);
   }
@@ -166,7 +172,7 @@ var API = (function() {
   // ── Public API ────────────────────────────────────────────────────
   return {
     getMessages: getMessages,
-    pollMessages: pollMessages,        // ← fixes "API.pollMessages is not a function"
+    pollMessages: pollMessages,
     sendMessage: sendMessage,
     deleteMessage: deleteMessage,
     markAsRead: markAsRead,
@@ -179,6 +185,8 @@ var API = (function() {
     getContactInfo: getContactInfo,
     checkPhones: checkPhones,
     getStatusFeed: getStatusFeed,
+    recordStatusView: recordStatusView,
+    getStatusViews: getStatusViews,
     uploadStatus: uploadStatus,
     getMyStatuses: getMyStatuses,
     deleteStatus: deleteStatus,

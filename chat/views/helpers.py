@@ -1,20 +1,5 @@
 """
 helpers.py — Shared utilities used across all view modules.
-No Django view logic here — only pure helpers and serializers.
-
-FIXES:
-  - _get_file_url: CloudinaryField with resource_type='auto' produces
-    auto/upload/ URLs that Cloudinary refuses with 404. We now always
-    rebuild the URL using cloudinary_url() with the correct resource_type
-    (guessed from extension, defaulting to 'image').  This affects every
-    status, attachment, and profile picture served through the feed.
-  - _serialize_message: offer_data now includes 'note' (was previously
-    dropped here even though negotiate_views.py's own _serialize_offer()
-    already included it). negotiate.js's _buildOfferCard() reads
-    offer.note to render the buyer's quoted note under the amount — with
-    it missing from this serializer, any offer routed through
-    get_messages / poll_messages (i.e. every offer once the page reloads
-    or polls) rendered with no note, even though the DB had it.
 """
 
 import logging
@@ -34,7 +19,9 @@ def _profile_pic(user):
     try:
         pp = user.profile.profile_picture
         pid = getattr(pp, 'public_id', None) or getattr(pp, 'name', None)
-        if pid:
+
+        # Reject static paths or full URLs that might be stuck in the DB
+        if pid and not str(pid).startswith(('/static/', 'http://', 'https://')):
             url = pp.url
             if url and url.startswith('http://'):
                 url = url.replace('http://', 'https://', 1)
@@ -45,12 +32,7 @@ def _profile_pic(user):
 
 
 def _guess_resource_type(public_id_or_name):
-    """
-    Guess the Cloudinary resource_type from the file extension embedded in
-    the public_id / filename.  Defaults to 'image' (the most common case).
-    """
     name = str(public_id_or_name or '').lower()
-    # Strip any existing resource-type prefix so we work with just the id+ext
     for prefix in ('auto/upload/', 'image/upload/', 'video/upload/', 'raw/upload/'):
         if prefix in name:
             name = name.split(prefix, 1)[-1]
@@ -64,10 +46,6 @@ def _guess_resource_type(public_id_or_name):
 
 
 def _clean_public_id(file_field):
-    """
-    Return the bare public_id (no resource-type prefix, no version segment)
-    from a CloudinaryField or plain string.
-    """
     public_id = getattr(file_field, 'public_id', None)
     if not public_id:
         public_id = getattr(file_field, 'name', None) or str(file_field)
@@ -76,13 +54,11 @@ def _clean_public_id(file_field):
 
     public_id = str(public_id)
 
-    # Strip leading resource-type path components that Cloudinary injects
     for prefix in ('auto/upload/', 'image/upload/', 'video/upload/', 'raw/upload/'):
         if prefix in public_id:
             public_id = public_id.split(prefix, 1)[-1]
             break
 
-    # Strip version segment like v1234567890/
     import re
     public_id = re.sub(r'^v\d+/', '', public_id)
 
@@ -90,15 +66,6 @@ def _clean_public_id(file_field):
 
 
 def _get_file_url(file_field):
-    """
-    Return a signed HTTPS URL for any CloudinaryField value.
-
-    The key fix: CloudinaryField(resource_type='auto') stores the public_id
-    and exposes a .url that contains 'auto/upload/' — Cloudinary rejects those
-    requests with 404.  We rebuild the URL via cloudinary_url() using the
-    correct resource_type (guessed from the file extension), which produces a
-    proper image/upload/ or video/upload/ signed URL.
-    """
     if not file_field:
         return ''
 
@@ -109,8 +76,6 @@ def _get_file_url(file_field):
 
         resource_type = _guess_resource_type(public_id)
 
-        # For 'raw' files (documents) keep the extension in the public_id;
-        # for image/video, Cloudinary derives format from the public_id ext.
         import cloudinary.utils
         url, _ = cloudinary.utils.cloudinary_url(
             public_id,
@@ -126,7 +91,6 @@ def _get_file_url(file_field):
 
     except Exception as e:
         logger.warning(f"_get_file_url failed for {file_field!r}: {e}")
-        # Last-resort: try the raw .url attribute and at least fix the scheme
         try:
             url = file_field.url
             if url and url.startswith('http://'):
@@ -169,7 +133,6 @@ def _delete_file(file_field):
 
 
 def _fetch_file_bytes(url):
-    """Download a file from a URL and return (bytes, content_type)."""
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'AsterixChat/1.0'})
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -186,14 +149,8 @@ def _fetch_file_bytes(url):
 # ─── Message serializer ────────────────────────────────────────────────────
 
 def _serialize_message(msg, viewer=None):
-    """
-    Full message serializer — includes attachments, related_status (with
-    active-deal info for the viewer), offer, and deal payloads.
-    viewer should be the request.user so deal visibility is scoped correctly.
-    """
     from django.db.models import Q as _Q
 
-    # ── Attachments ────────────────────────────────────────────────────
     attachments = []
     for att in msg.attachments.all():
         url = _get_file_url(att.file)
@@ -205,7 +162,6 @@ def _serialize_message(msg, viewer=None):
                 "file_type": att.file_type or "application/octet-stream",
             })
 
-    # ── Related status (with active deal context for viewer) ───────────
     related_status_data = None
     if msg.related_status_id:
         try:
@@ -221,6 +177,8 @@ def _serialize_message(msg, viewer=None):
                 if active:
                     active_deal_id = active.id
                     final_price    = str(active.final_price)
+            _rs_cat = (rs.category.name if getattr(rs, 'category', None) else '')
+            _rs_market_commercial = bool(rs.is_commercial) and _rs_cat == 'Market'
             related_status_data = {
                 "id":               rs.id,
                 "status_id":        rs.id,
@@ -234,12 +192,12 @@ def _serialize_message(msg, viewer=None):
                 "collection_point": rs.collection_point or '',
                 "active_deal_id":   active_deal_id,
                 "final_price":      final_price,
-                "is_commercial":    rs.is_commercial,
+                "is_commercial":    _rs_market_commercial,
+                "category":         _rs_cat,
             }
         except Exception:
             related_status_data = None
 
-    # ── Offer payload ──────────────────────────────────────────────────
     offer_data = None
     if msg.offer_id:
         try:
@@ -249,11 +207,6 @@ def _serialize_message(msg, viewer=None):
                 "amount":         str(offer.amount),
                 "state":          offer.state,
                 "proposed_by":    offer.proposed_by.username,
-                # FIX: was missing here — negotiate.js reads offer.note to
-                # render the buyer's quoted note under the offered amount.
-                # negotiate_views.py's own _serialize_offer() already
-                # included this; this serializer (used by get_messages /
-                # poll_messages) did not, so the note vanished on reload.
                 "note":           getattr(offer, 'note', '') or '',
                 "buyer":          offer.buyer.username,
                 "seller":         offer.seller.username,
@@ -264,7 +217,6 @@ def _serialize_message(msg, viewer=None):
         except Exception:
             offer_data = None
 
-    # ── Deal payload ───────────────────────────────────────────────────
     deal_data = None
     if msg.deal_id:
         try:

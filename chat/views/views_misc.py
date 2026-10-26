@@ -24,6 +24,9 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.http import FileResponse, Http404
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -210,4 +213,24 @@ def service_worker(request):
         content = f.read()
     response = HttpResponse(content, content_type='application/javascript')
     response['Service-Worker-Allowed'] = '/'
+    return response
+
+
+
+
+def download_apk(request):
+    """
+    Serves the Android APK with the correct MIME type so Android
+    browsers don't rename it to .bin
+    """
+    file_path = os.path.join(settings.BASE_DIR, 'static', 'fizzme.apk')
+
+    if not os.path.exists(file_path):
+        raise Http404("APK file not found")
+
+    response = FileResponse(
+        open(file_path, 'rb'),
+        content_type='application/vnd.android.package-archive'
+    )
+    response['Content-Disposition'] = 'attachment; filename="fizzme.apk"'
     return response

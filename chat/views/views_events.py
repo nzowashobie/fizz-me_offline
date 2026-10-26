@@ -7,6 +7,7 @@ import json
 import logging
 
 import requests as req_lib
+import cloudinary.uploader
 
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
@@ -157,12 +158,19 @@ def invite_to_event(request, event_id):
 
 @login_required
 def event_invite_view(request, invite_token):
+    from django.shortcuts import render
     event = get_object_or_404(ZambianEvent, invite_token=invite_token)
 
-    if event.visibility != 'public' and not _can_view_event(request.user, event):
-        return JsonResponse({
-            "error":       "You are not on the guest list for this event.",
+    # If they have the exact invite link, they are effectively invited.
+    # Automatically add them to the guest list if it's invite-only.
+    if event.visibility == 'invite_only' and request.user != event.host:
+        EventInvitee.objects.get_or_create(event=event, user=request.user)
+    
+    # For other restricted visibilities, check if they are allowed
+    elif event.visibility != 'public' and not _can_view_event(request.user, event):
+        return render(request, "invite_blocked.html", {
             "event_title": event.title,
+            "event_type": event.get_event_type_display(),
         }, status=403)
 
     rsvp_status = None
@@ -171,27 +179,16 @@ def event_invite_view(request, invite_token):
     except EventInvitee.DoesNotExist:
         pass
 
-    return JsonResponse({
-        "event_id":      event.id,
-        "event_type":    event.get_event_type_display(),
-        "title":         event.title,
-        "description":   event.description,
-        "venue":         event.venue,
-        "event_date":    _utc_iso(event.event_date),
-        "dress_code":    event.dress_code,
-        "rsvp_deadline": str(event.rsvp_deadline) if event.rsvp_deadline else None,
-        "bride_name":    event.bride_name,
-        "groom_name":    event.groom_name,
-        "family_contact": event.family_contact,
-        "family_phone":  event.family_phone,
-        "host":          event.host.username,
-        "cover_photo":   _get_file_url(event.cover_photo) or '',
-        "visibility":    event.visibility,
-        "your_rsvp":     rsvp_status,
-        "invite_token":  str(event.invite_token),
+    event_date_fmt = event.event_date.strftime('%A, %B %d, %Y at %I:%M %p') if event.event_date else ''
+    rsvp_deadline_fmt = event.rsvp_deadline.strftime('%B %d, %Y') if event.rsvp_deadline else ''
+
+    return render(request, "event_invite.html", {
+        "event": event,
+        "event_date_fmt": event_date_fmt,
+        "rsvp_deadline_fmt": rsvp_deadline_fmt,
+        "cover_photo": _get_file_url(event.cover_photo) or '',
+        "your_rsvp": rsvp_status,
     })
-
-
 @csrf_exempt
 @login_required
 @require_http_methods(["POST"])
@@ -211,6 +208,11 @@ def rsvp_event(request, event_id):
         return JsonResponse({"error": f"rsvp must be one of: {', '.join(valid_rsvps)}"}, status=400)
 
     invitee, _ = EventInvitee.objects.get_or_create(event=event, user=request.user)
+    
+    # Enforce single RSVP
+    if invitee.rsvp != 'pending':
+        return JsonResponse({"error": "You have already responded to this invitation."}, status=403)
+
     invitee.rsvp         = rsvp
     invitee.responded_at = now()
     invitee.save(update_fields=['rsvp', 'responded_at'])
@@ -236,19 +238,22 @@ def get_my_events(request):
 @login_required
 def my_events(request):
     events = ZambianEvent.objects.filter(host=request.user).order_by('-created_at')
-    return JsonResponse({
-        "events": [
-            {
-                "id":         e.id,
-                "title":      e.title,
-                "event_date": e.event_date.isoformat(),
-                "cover_photo": _get_file_url(e.cover_photo),
-                "invite_url": request.build_absolute_uri(f"/events/invite/{e.invite_token}/"),
-                "visibility": e.visibility,
-            }
-            for e in events
-        ]
-    })
+    result = []
+    for e in events:
+        try:
+            cover = _get_file_url(e.cover_photo) if e.cover_photo else ''
+        except Exception:
+            cover = ''
+            
+        result.append({
+            "id":         e.id,
+            "title":      e.title,
+            "event_date": e.event_date.isoformat() if e.event_date else '',
+            "cover_photo": cover,
+            "invite_url": request.build_absolute_uri(f"/events/invite/{e.invite_token}/"),
+            "visibility": e.visibility,
+        })
+    return JsonResponse({"events": result})
 
 
 @login_required
@@ -306,42 +311,128 @@ def share_event_to_status(request, event_id):
     caption    = "\n".join(parts)[:255]
     invite_url = request.build_absolute_uri(f"/events/invite/{event.invite_token}/")
 
-    # ── Media: cover photo or SVG fallback ────────────────────────────
-    media_file = None
-    cover_url  = _get_file_url(event.cover_photo) if event.cover_photo else None
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import io
+        import re
 
-    if cover_url:
-        try:
-            r = req_lib.get(cover_url, timeout=30)
-            if r.status_code == 200:
-                ct  = r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
-                ext = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}.get(ct, 'jpg')
-                media_file = ContentFile(r.content, name=f'event-{event.id}.{ext}')
-        except Exception as e:
-            logger.warning(f"Could not download cover photo: {e}")
+        W, H = 1080, 1920
+        img = Image.new('RGB', (W, H), '#1a0b12')
+        draw = ImageDraw.Draw(img)
 
-    if media_file is None:
-        def _x(s):
-            return (s or '')[:50].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        formatted_date = event.event_date.strftime('%B %d, %Y') if event.event_date else ''
-        svg_str = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400">'
-            '<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">'
-            '<stop offset="0%" style="stop-color:#880e4f"/>'
-            '<stop offset="50%" style="stop-color:#c62828"/>'
-            '<stop offset="100%" style="stop-color:#4a148c"/>'
-            '</linearGradient></defs>'
-            '<rect width="800" height="400" fill="url(#g)"/>'
-            f'<text x="400" y="150" font-size="28" font-weight="bold" text-anchor="middle" fill="white">{_x(event.title)}</text>'
-            f'<text x="400" y="210" font-size="20" text-anchor="middle" fill="rgba(255,255,255,0.85)">{_x(event.venue)}</text>'
-            f'<text x="400" y="260" font-size="18" text-anchor="middle" fill="rgba(255,255,255,0.7)">{_x(formatted_date)}</text>'
-            '</svg>'
+        # Background image
+        if event.cover_photo:
+            try:
+                cover_url = _get_file_url(event.cover_photo)
+                if cover_url:
+                    r = req_lib.get(cover_url, timeout=10)
+                    if r.status_code == 200:
+                        cover = Image.open(io.BytesIO(r.content)).convert('RGB')
+                        ratio = max(W / cover.width, H / cover.height)
+                        new_size = (int(cover.width * ratio), int(cover.height * ratio))
+                        cover = cover.resize(new_size, Image.Resampling.LANCZOS)
+                        left = (cover.width - W) / 2
+                        top = (cover.height - H) / 2
+                        cover = cover.crop((left, top, left + W, top + H))
+                        img.paste(cover, (0, 0))
+            except Exception as e:
+                logger.warning(f"Could not load cover image: {e}")
+
+        # Gradient overlay
+        overlay = Image.new('RGBA', (W, H), (0,0,0,0))
+        odraw = ImageDraw.Draw(overlay)
+        for y in range(H):
+            alpha = int(20 + (200 * (y / H)))
+            odraw.line([(0, y), (W, y)], fill=(0, 0, 0, alpha))
+        
+        img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+        draw = ImageDraw.Draw(img)
+
+        # Fonts
+        def get_font(size, bold=False):
+            fonts = ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "Helvetica.ttf"]
+            if bold:
+                fonts = ["arialbd.ttf", "Arialbd.ttf", "DejaVuSans-Bold.ttf"] + fonts
+            for name in fonts:
+                try:
+                    return ImageFont.truetype(name, size)
+                except IOError:
+                    continue
+            return ImageFont.load_default()
+
+        font_badge = get_font(30, bold=True)
+        font_title = get_font(64, bold=True)
+        font_names = get_font(40)
+        font_details = get_font(34)
+        font_footer = get_font(28)
+
+        WHITE = (255, 255, 255)
+        GOLD = (230, 168, 23)
+        BLACK = (0, 0, 0)
+
+        def draw_centered(text, y, font, color):
+            # Safely ignore non-ASCII characters (emojis) for Pillow
+            text = text.encode('ascii', 'ignore').decode('ascii')
+            if not text:
+                return
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw = bbox[2] - bbox[0]
+            draw.text(((W - tw) / 2, y), text, font=font, fill=color)
+
+        # Badge
+        badge_text = event.get_event_type_display()
+        badge_text = badge_text.encode('ascii', 'ignore').decode('ascii').strip()
+        bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
+        bw, bh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        bx = (W - bw) / 2
+        by = 200
+        draw.rounded_rectangle([bx - 30, by - 15, bx + bw + 30, by + bh + 15], radius=30, fill=GOLD)
+        draw.text((bx, by), badge_text, font=font_badge, fill=BLACK)
+
+        # Title & Names
+        draw_centered(event.title, 320, font_title, WHITE)
+        
+        if event.bride_name and event.groom_name:
+            draw_centered(f"{event.bride_name} & {event.groom_name}", 400, font_names, GOLD)
+
+        # Details
+        y_details = 1200
+        if event.event_date:
+            draw_centered(f"Date: {event.event_date.strftime('%B %d, %Y at %I:%M %p')}", y_details, font_details, WHITE)
+            y_details += 60
+        if event.venue:
+            draw_centered(f"Venue: {event.venue}", y_details, font_details, WHITE)
+            y_details += 60
+        if event.dress_code:
+            draw_centered(f"Dress Code: {event.dress_code}", y_details, font_details, WHITE)
+            y_details += 60
+
+        # Footer
+        draw_centered("Tap to view invitation & RSVP", H - 150, font_footer, GOLD)
+
+        # Upload
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+
+        upload_res = cloudinary.uploader.upload(
+            buffer, 
+            resource_type='image', 
+            folder='statuses',
+            format='png'
         )
-        media_file = ContentFile(svg_str.encode('utf-8'), name=f'event-{event.id}.svg')
+        public_id = upload_res.get('public_id')
+        
+        if not public_id:
+            return JsonResponse({"error": "Cloudinary did not return a public_id."}, status=500)
+
+    except Exception as e:
+        logger.error(f"Pillow generation or upload failed: {e}", exc_info=True)
+        return JsonResponse({"error": f"Failed to generate status image: {str(e)}"}, status=500)
 
     status = UserStatus.objects.create(
         user=request.user, category=category,
-        media=media_file, caption=caption, market_link=invite_url,
+        media=public_id, caption=caption, market_link=invite_url,
     )
     EventStatusShare.objects.create(event=event, status=status, shared_by=request.user)
 

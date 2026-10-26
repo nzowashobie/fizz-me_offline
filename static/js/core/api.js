@@ -85,6 +85,15 @@ var API = (function() {
     getUnreadCounts: function() {
       return _get('/api/messages/unread_count/');
     },
+    sendTyping: function(recipient) {
+      return _post('/api/messages/typing/', { recipient: recipient });
+    },
+    checkTyping: function(recipient) {
+      return _get('/api/messages/typing/check/?recipient=' + encodeURIComponent(recipient));
+    },
+    checkReadStatus: function(ids) {
+      return _post('/api/messages/read-status/', { message_ids: ids });
+    },
     clearChat: function(recipientId, permanent) {
       if (permanent === undefined) permanent = true;
       return _post('/api/clear-chat/', { recipient_id: recipientId, permanent: permanent });
@@ -129,6 +138,12 @@ var API = (function() {
     // ── Statuses ────────────────────────────────────────────────
     getStatusFeed: function(category) {
       return _get('/api/status/feed/' + encodeURIComponent(category) + '/');
+    },
+    recordStatusView: function(statusId) {
+      return _post('/api/status/view/', { status_id: statusId });
+    },
+    getStatusViews: function(statusId) {
+      return _get('/api/status/' + statusId + '/views/');
     },
     getMyStatuses: function() {
       return _get('/api/status/mine/');

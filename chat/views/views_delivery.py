@@ -14,6 +14,10 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Avg, Count
 from django.http import JsonResponse, HttpResponse, Http404
+from django.conf import settings
+from django.core.files.storage import FileSystemStorage
+from django.http import FileResponse
+import uuid
 from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.csrf import csrf_exempt
@@ -39,10 +43,10 @@ _STAGE_ACTOR = {
     'disputed':         'both',
 }
 _STAGE_LABELS = {
-    'seller_confirmed': '✅ Seller confirmed the item is ready',
+    'seller_confirmed': '✅ Ready for collection — come and collect',
     'in_transit':       '🚚 Item is on its way',
     'delivered':        '📬 Buyer confirmed delivery',
-    'payment_released': '💰 Payment released — deal closed!',
+    'payment_released': '💰 Collected — deal closed, payment released',
     'disputed':         '⚠️ A dispute has been raised. Resolve via chat.',
 }
 _MAX_FREE_BUMPS_PER_DAY = 1
@@ -58,16 +62,30 @@ _METHODS = {
 
 
 def _stages_for(method):
-    """Collection skips the in-transit step."""
-    if method == "collection":
-        return [s for s in _STAGE_ORDER if s != "in_transit"]
-    return list(_STAGE_ORDER)
+    """Collection only: ready, then collected and closed."""
+    return ["order_placed", "seller_confirmed", "payment_released"]
 
 
 def _tracker_for(deal):
+    """Get or create the tracker, and move older trackers onto the collection flow."""
     tracker, _ = DeliveryTracking.objects.get_or_create(
-        deal=deal, defaults={"stage": "order_placed"}
+        deal=deal, defaults={"stage": "order_placed", "delivery_method": "collection"}
     )
+    changed = []
+    if tracker.delivery_method != "collection":
+        tracker.delivery_method = "collection"
+        changed.append("delivery_method")
+    if tracker.stage == "in_transit":
+        tracker.stage = "seller_confirmed"
+        changed.append("stage")
+    elif tracker.stage == "delivered":
+        tracker.stage = "payment_released"
+        changed.append("stage")
+        if not tracker.payment_released_at:
+            tracker.payment_released_at = now()
+            changed.append("payment_released_at")
+    if changed:
+        tracker.save(update_fields=sorted(set(changed)))
     return tracker
 
 
@@ -127,10 +145,23 @@ def advance_delivery(request):
             )
 
     allowed = _STAGE_ACTOR.get(new_stage, "both")
-    if allowed == "seller" and me != deal.seller:
-        return JsonResponse({"error": "Only the seller can mark this stage"}, status=403)
-    if allowed == "buyer" and me != deal.buyer:
-        return JsonResponse({"error": "Only the buyer can mark this stage"}, status=403)
+    if new_stage == "seller_confirmed" and not (deal.payment_proof or deal.payment_reference):
+        return JsonResponse(
+            {"error": "Check your mobile money first. The buyer has not sent a screenshot or reference yet."},
+            status=400,
+        )
+    if new_stage == "payment_released" and me == deal.seller:
+        ready_at = tracker.seller_confirmed_at
+        if not ready_at or now() < ready_at + timedelta(hours=SELLER_CLOSE_HOURS):
+            return JsonResponse(
+                {"error": f"You can close this deal {SELLER_CLOSE_HOURS} hours after marking ready, if the buyer has not confirmed."},
+                status=400,
+            )
+    else:
+        if allowed == "seller" and me != deal.seller:
+            return JsonResponse({"error": "Only the seller can mark this stage"}, status=403)
+        if allowed == "buyer" and me != deal.buyer:
+            return JsonResponse({"error": "Only the buyer can mark this stage"}, status=403)
 
     ts = now()
     with transaction.atomic():
@@ -146,7 +177,7 @@ def advance_delivery(request):
         elif new_stage == "payment_released":
             tracker.payment_released_at = ts
             SellerRating.objects.get_or_create(deal=deal)
-            UserStatus.objects.filter(pk=deal.status_id).update(availability="sold")
+            # Availability is already handled by quantity in the commerce views
         elif new_stage == "disputed":
             tracker.disputed_at = ts
         tracker.save()
@@ -160,6 +191,19 @@ def advance_delivery(request):
         )
 
     return JsonResponse({"status": "success", "stage": tracker.stage, "updated": _utc_iso(ts)})
+
+
+@login_required
+def deal_delivery_page(request, deal_id):
+    """The delivery tracker as its own page, opened from the chat card."""
+    try:
+        deal = Deal.objects.select_related("buyer", "seller", "status").get(pk=deal_id)
+    except Deal.DoesNotExist:
+        raise Http404("Deal not found")
+    if request.user not in (deal.buyer, deal.seller):
+        return HttpResponse("Not a participant in this deal.", status=403)
+    role = "buyer" if request.user == deal.buyer else "seller"
+    return render(request, "deal_delivery.html", {"deal": deal, "role": role})
 
 
 @login_required
@@ -185,6 +229,11 @@ def get_delivery_status(request):
     if t.delivery_method and t.stage in order and order.index(t.stage) + 1 < len(order):
         next_s = order[order.index(t.stage) + 1]
 
+    role = "buyer" if me == deal.buyer else "seller"
+    can_close_at = None
+    if role == "seller" and t.stage == "seller_confirmed" and t.seller_confirmed_at:
+        can_close_at = _utc_iso(t.seller_confirmed_at + timedelta(hours=SELLER_CLOSE_HOURS))
+
     return JsonResponse({
         "deal_id":             deal.pk,
         "stage":               t.stage,
@@ -198,9 +247,17 @@ def get_delivery_status(request):
         "disputed_at":         _utc_iso(t.disputed_at)         if t.disputed_at         else None,
         "next_stage":          next_s,
         "next_actor":          _STAGE_ACTOR.get(next_s, "") if next_s else "",
-        "my_role":             "buyer" if me == deal.buyer else "seller",
+        "my_role":             role,
         "closed":              t.stage == "payment_released",
         "receipt_url":         f"/deals/{deal.pk}/receipt/",
+        "amount":              str(deal.final_price),
+        "buyer":               deal.buyer.username,
+        "seller":              deal.seller.username,
+        "payment_method":      deal.payment_method or "",
+        "payment_reference":   deal.payment_reference or "",
+        "has_proof":           bool(deal.payment_proof),
+        "proof_url":           f"/deals/{deal.pk}/proof/" if deal.payment_proof else None,
+        "seller_can_close_at": can_close_at,
     })
 
 
@@ -245,7 +302,10 @@ def set_delivery_method(request):
     return JsonResponse({"status": "success", "delivery_method": method})
 
 
+from django.views.decorators.cache import never_cache
+
 @login_required
+@never_cache
 def deal_receipt(request, deal_id):
     """Printable receipt for a completed deal. Buyer and seller only."""
     from .views_commerce import _METHOD_LABELS
@@ -266,7 +326,7 @@ def deal_receipt(request, deal_id):
         "tracker": tracker,
         "receipt_no": f"ASX-{deal.pk:06d}",
         "issued": now(),
-        "closed": bool(tracker and tracker.stage == "payment_released"),
+        "closed": bool(tracker and tracker.stage in ("delivered", "payment_released")),
         "method_label": _METHODS.get(method, "Not chosen yet"),
         "payment_label": _METHOD_LABELS.get(deal.payment_method, deal.payment_method) or "—",
     })
@@ -496,3 +556,102 @@ def bump_listing(request):
         "bumped_at":  _utc_iso(ts),
         "bump_count": getattr(status, 'bump_count', 1),
     })
+
+
+# ─── Payment proof ─────────────────────────────────────────────────────────
+
+SELLER_CLOSE_HOURS = 24
+PROOF_MAX_BYTES = 5 * 1024 * 1024
+_PROOF_DIR = "payment_proofs"
+
+
+def _proof_storage():
+    return FileSystemStorage(location=str(settings.MEDIA_ROOT))
+
+
+def _image_ext(head):
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+@login_required
+@require_http_methods(["POST"])
+def upload_payment_proof(request):
+    """
+    Buyer sends a screenshot and/or the reference number before paying.
+    POST multipart: deal_id, reference (optional), proof (optional image).
+    """
+    deal_id = (request.POST.get("deal_id") or "").strip()
+    reference = (request.POST.get("reference") or "").strip()[:60]
+    upload = request.FILES.get("proof")
+
+    if not deal_id.isdigit():
+        return JsonResponse({"error": "deal_id is required"}, status=400)
+    if not reference and not upload:
+        return JsonResponse({"error": "Add the reference number or a screenshot."}, status=400)
+    try:
+        deal = Deal.objects.select_related("buyer", "seller", "status").get(pk=int(deal_id))
+    except Deal.DoesNotExist:
+        return JsonResponse({"error": "Deal not found"}, status=404)
+    if request.user != deal.buyer:
+        return JsonResponse({"error": "Only the buyer sends payment proof"}, status=403)
+    if deal.state != "confirmed":
+        return JsonResponse({"error": "Payment proof is sent before you pay"}, status=400)
+
+    storage = _proof_storage()
+    new_name = None
+    if upload:
+        if upload.size > PROOF_MAX_BYTES:
+            return JsonResponse({"error": "Screenshot is too large (max 5 MB)."}, status=400)
+        head = upload.read(16)
+        upload.seek(0)
+        ext = _image_ext(head)
+        if not ext:
+            return JsonResponse({"error": "Send a JPG, PNG or WEBP screenshot."}, status=400)
+        new_name = storage.save(f"{_PROOF_DIR}/deal_{deal.pk}_{uuid.uuid4().hex}.{ext}", upload)
+
+    old_name = deal.payment_proof
+    with transaction.atomic():
+        if new_name:
+            deal.payment_proof = new_name
+        if reference:
+            deal.payment_reference = reference
+        deal.payment_proof_at = now()
+        deal.save(update_fields=["payment_proof", "payment_reference", "payment_proof_at"])
+        Message.objects.create(
+            sender=request.user, recipient=deal.seller,
+            message="🧾 Payment proof sent. Open Track delivery to review and accept" + (f" · Ref: {reference}" if reference else ""),
+            message_type="status_update", deal=deal, related_status=deal.status,
+        )
+    if new_name and old_name:
+        storage.delete(old_name)
+    return JsonResponse({
+        "status": "success",
+        "reference": deal.payment_reference,
+        "has_proof": bool(deal.payment_proof),
+    })
+
+
+@login_required
+def payment_proof_file(request, deal_id):
+    """Serves the screenshot to the buyer and seller of that deal only."""
+    try:
+        deal = Deal.objects.select_related("buyer", "seller").get(pk=deal_id)
+    except Deal.DoesNotExist:
+        raise Http404("Not found")
+    if request.user not in (deal.buyer, deal.seller):
+        return HttpResponse("Not a participant in this deal.", status=403)
+    storage = _proof_storage()
+    if not deal.payment_proof or not storage.exists(deal.payment_proof):
+        raise Http404("No screenshot")
+    name = deal.payment_proof.lower()
+    ctype = "image/png" if name.endswith(".png") else "image/webp" if name.endswith(".webp") else "image/jpeg"
+    resp = FileResponse(storage.open(deal.payment_proof, "rb"), content_type=ctype)
+    resp["Cache-Control"] = "private, no-store"
+    resp["X-Content-Type-Options"] = "nosniff"
+    return resp

@@ -9,14 +9,15 @@
     <link rel="icon" type="image/png" href="{% static 'images/favicon.ico' %}">
     <style>
         /* ════════════════════════════════════════════
-           RESET & BASE
-           ════════════════════════════════════════════ */
+            RESET & BASE
+            ════════════════════════════════════════════ */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
+        /* ── Animated Artistic Cartoon African Landscape Background ── */
         body {
             font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
             min-height: 100vh;
@@ -24,66 +25,192 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b141a;
-            background-image:
-                radial-gradient(ellipse at 20% 50%, rgba(18, 140, 126, 0.12) 0%, transparent 60%),
-                radial-gradient(ellipse at 80% 50%, rgba(37, 211, 102, 0.08) 0%, transparent 60%),
-                linear-gradient(135deg, #0b141a 0%, #111616 50%, #0b141a 100%);
             padding: 20px;
             position: relative;
-            overflow-x: hidden;
+            overflow: hidden;
+            background: linear-gradient(180deg, #1a0b2e 0%, #ff7e5f 40%, #feb47b 70%, #2e1a0b 100%);
+            background-size: 100% 400%;
+            animation: skyShift 25s ease infinite alternate;
         }
 
-        /* Decorative animated blobs */
-        body::before,
-        body::after {
-            content: '';
+        @keyframes skyShift {
+            0% { background-position: 0% 0%; }
+            100% { background-position: 0% 100%; }
+        }
+
+        /* Animated Cartoon Landscape Container */
+        .cartoon-bg-scene {
             position: fixed;
-            border-radius: 50%;
-            filter: blur(80px);
-            opacity: 0.3;
-            pointer-events: none;
+            inset: 0;
             z-index: 0;
-        }
-        body::before {
-            width: 400px;
-            height: 400px;
-            background: radial-gradient(circle, #128c7e, transparent 70%);
-            top: -100px;
-            right: -100px;
-            animation: floatBlob 8s ease-in-out infinite alternate;
-        }
-        body::after {
-            width: 350px;
-            height: 350px;
-            background: radial-gradient(circle, #25d366, transparent 70%);
-            bottom: -80px;
-            left: -80px;
-            animation: floatBlob 10s ease-in-out infinite alternate-reverse;
+            pointer-events: none;
+            overflow: hidden;
         }
 
-        @keyframes floatBlob {
-            0% { transform: translate(0, 0) scale(1); }
-            100% { transform: translate(40px, -30px) scale(1.2); }
+        /* Sun glowing animation */
+        .cartoon-sun {
+            position: absolute;
+            top: 8%;
+            right: 15%;
+            width: 90px;
+            height: 90px;
+            background: radial-gradient(circle, #fff3b0 0%, #ff9f1c 70%, rgba(255,159,28,0) 100%);
+            border-radius: 50%;
+            box-shadow: 0 0 50px rgba(255, 159, 28, 0.6);
+            animation: sunPulse 6s ease-in-out infinite alternate;
+        }
+        @keyframes sunPulse {
+            0% { transform: scale(0.95); opacity: 0.85; }
+            100% { transform: scale(1.1); opacity: 1; }
+        }
+
+        /* Drifting Clouds */
+        .cartoon-cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 50px;
+            filter: blur(2px);
+            animation: driftClouds 35s linear infinite;
+        }
+        .cartoon-cloud::before, .cartoon-cloud::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 50%;
+        }
+        .cloud-1 { width: 140px; height: 40px; top: 12%; left: -160px; animation-duration: 40s; }
+        .cloud-1::before { width: 60px; height: 60px; top: -30px; left: 20px; }
+        .cloud-1::after { width: 50px; height: 50px; top: -20px; left: 70px; }
+
+        .cloud-2 { width: 100px; height: 30px; top: 25%; left: -120px; animation-duration: 28s; animation-delay: 5s; opacity: 0.7; }
+        .cloud-2::before { width: 40px; height: 40px; top: -20px; left: 15px; }
+
+        @keyframes driftClouds {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(calc(100vw + 200px)); }
+        }
+
+        /* Flying Birds */
+        .cartoon-birds {
+            position: absolute;
+            top: 18%;
+            left: -50px;
+            font-size: 16px;
+            color: rgba(46, 26, 11, 0.6);
+            animation: flyBirds 22s linear infinite;
+        }
+        @keyframes flyBirds {
+            0% { transform: translateX(0) translateY(0); }
+            50% { transform: translateX(50vw) translateY(-20px); }
+            100% { transform: translateX(calc(100vw + 100px)) translateY(0); }
+        }
+
+        /* Background Hills & Horizon */
+        .cartoon-hills {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 32vh;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%233b1e08' fill-opacity='0.8' d='M0,192L48,181.3C96,171,192,149,288,160C384,171,480,213,576,213.3C672,213,768,171,864,165.3C960,160,1056,192,1152,197.3C1248,203,1344,181,1392,170.7L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E") no-repeat bottom;
+            background-size: cover;
+        }
+
+        /* Animated Cartoon Foreground Elements (Church, Well, Animals) */
+        .cartoon-elements {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            height: 180px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 40px;
+            opacity: 0.85;
+        }
+
+        /* Church Scene (Left) */
+        .scene-church {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            transform-origin: bottom;
+            animation: swayScene 4s ease-in-out infinite alternate;
+        }
+        .church-icon {
+            font-size: 42px;
+            color: #211104;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
+        .people-walking {
+            font-size: 24px;
+            color: #1a0b02;
+            animation: walkPeople 6s ease-in-out infinite alternate;
+        }
+        @keyframes walkPeople {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(15px); }
+        }
+
+        /* Well & Water Drawing Scene (Center-Left) */
+        .scene-well {
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+        }
+        .well-icon {
+            font-size: 38px;
+            color: #211104;
+        }
+        .person-drawing {
+            font-size: 26px;
+            color: #1a0b02;
+            animation: pumpWater 2s ease-in-out infinite;
+        }
+        @keyframes pumpWater {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+
+        /* Wildlife / Animals (Right) */
+        .scene-animals {
+            display: flex;
+            align-items: flex-end;
+            gap: 16px;
+            animation: animalGrazing 5s ease-in-out infinite alternate;
+        }
+        .animal-icon {
+            font-size: 32px;
+            color: #1a0b02;
+        }
+        @keyframes animalGrazing {
+            0% { transform: translateY(0) scaleX(1); }
+            100% { transform: translateY(-2px) scaleX(1.02); }
+        }
+
+        @keyframes swayScene {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(0.5deg); }
         }
 
         /* ════════════════════════════════════════════
-           MAIN CARD
-           ════════════════════════════════════════════ */
+            MAIN CARD
+            ════════════════════════════════════════════ */
         .login-container {
             position: relative;
-            z-index: 1;
-            background: rgba(26, 31, 31, 0.92);
+            z-index: 2;
+            background: rgba(20, 25, 27, 0.92);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 24px;
             padding: 40px 36px 44px;
             width: 100%;
             max-width: 400px;
             box-shadow:
-                0 25px 80px rgba(0, 0, 0, 0.6),
-                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+                0 25px 80px rgba(0, 0, 0, 0.65),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
             animation: cardIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
         }
 
@@ -298,12 +425,12 @@
             left: 50%;
             transform: translateX(-50%) translateY(80px);
             background: #1a1f1f;
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 14px;
             padding: 14px 24px;
             color: #e9edef;
             font-size: 14px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
             z-index: 999;
             opacity: 0;
             transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -350,6 +477,9 @@
                 font-size: 13px;
                 width: calc(100% - 40px);
             }
+            .cartoon-elements {
+                padding: 0 15px;
+            }
         }
 
         @media (max-width: 380px) {
@@ -384,9 +514,35 @@
 </head>
 <body>
 
+    <!-- Animated Artistic Cartoon African Background Scene -->
+    <div class="cartoon-bg-scene">
+        <div class="cartoon-sun"></div>
+        <div class="cartoon-cloud cloud-1"></div>
+        <div class="cartoon-cloud cloud-2"></div>
+        <div class="cartoon-birds"><i class="fas fa-kiwi-bird"></i> <i class="fas fa-dove"></i> <i class="fas fa-feather-alt"></i></div>
+        <div class="cartoon-hills"></div>
+        <div class="cartoon-elements">
+            <!-- Church Scene -->
+            <div class="scene-church">
+                <i class="fas fa-church church-icon" title="People going to church"></i>
+                <i class="fas fa-walking people-walking"></i>
+            </div>
+            <!-- Well Scene -->
+            <div class="scene-well">
+                <i class="fas fa-faucet well-icon" title="Drawing water from well"></i>
+                <i class="fas fa-child person-drawing"></i>
+            </div>
+            <!-- Animals Scene -->
+            <div class="scene-animals">
+                <i class="fas fa-hippo animal-icon" title="Wildlife"></i>
+                <i class="fas fa-dog animal-icon"></i>
+            </div>
+        </div>
+    </div>
+
     <!-- ════════════════════════════════════════════
-         MAIN CARD
-         ════════════════════════════════════════════ -->
+        MAIN CARD
+        ════════════════════════════════════════════ -->
     <div class="login-container">
 
         <!-- Header -->
@@ -472,7 +628,7 @@
     </div>
 
     <!-- ════════════════════════════════════════════
-         SCRIPTS (keep same functionality)
+         SCRIPTS
          ════════════════════════════════════════════ -->
     <script>
         (function() {
@@ -590,7 +746,7 @@
 
             // ── Prevent double submit ────────────────────────────────────
             let submitting = false;
-            form.addEventListener('submit', function() {
+            form.addEventListener('submit', function(event) {
                 if (submitting) {
                     event.preventDefault();
                     return;

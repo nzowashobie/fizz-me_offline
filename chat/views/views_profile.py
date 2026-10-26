@@ -241,12 +241,13 @@ def remove_contact(request):
     except CustomUser.DoesNotExist:
         return JsonResponse({"status": "error", "message": "User not found."}, status=404)
 
-    deleted, _ = Contact.objects.filter(owner=request.user, contact_user=target).delete()
-    if not deleted:
-        return JsonResponse(
-            {"status": "error", "message": f"{target.username} is not in your contacts."},
-            status=404,
-        )
+    Contact.objects.filter(owner=request.user, contact_user=target).delete()
+    
+    # Clear chat history for the current user so it disappears from the sidebar
+    from ..models import Message
+    Message.objects.filter(sender=request.user, recipient=target).update(cleared_by_sender=True)
+    Message.objects.filter(sender=target, recipient=request.user).update(cleared_by_recipient=True)
+
     return JsonResponse({"status": "success", "message": f"Removed {target.username} from your contacts."})
 
 
@@ -273,12 +274,19 @@ def get_contact_info(request):
     except CustomUser.DoesNotExist:
         return JsonResponse({"error": "User not found."}, status=404)
 
-    if not Contact.objects.filter(owner=request.user, contact_user=target).exists():
-        return JsonResponse({"error": "That user isn't in your contacts."}, status=403)
+    from ..models import Message
+    from django.db.models import Q
+    is_contact = Contact.objects.filter(owner=request.user, contact_user=target).exists()
+    has_messages = Message.objects.filter(
+        Q(sender=request.user, recipient=target) | Q(sender=target, recipient=request.user)
+    ).exists()
+
+    if not is_contact and not has_messages:
+        return JsonResponse({"error": "That user isn't in your chats."}, status=403)
 
     online = False
     if target.last_seen:
-        online = (now() - target.last_seen).total_seconds() < 30
+        online = (now() - target.last_seen).total_seconds() < 60
 
     return JsonResponse({
         "username":        target.username,
@@ -484,5 +492,7 @@ def update_online_status(request):
 
 @login_required
 def get_online_users(request):
-    # Stub — returns empty list until last_active field is added
-    return JsonResponse({"online": []})
+    from datetime import timedelta
+    threshold = now() - timedelta(seconds=60)
+    online = CustomUser.objects.filter(last_seen__gte=threshold).exclude(id=request.user.id)
+    return JsonResponse({"online": [u.username for u in online]})

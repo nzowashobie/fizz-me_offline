@@ -34,10 +34,15 @@ function fmtTime(ts) {
 function externalLink(link) {
   if (!link) return null;
   link = link.trim();
-  link = link.replace(/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//, '');
-  link = link.replace(/^https?:\/\/[a-z0-9-]+\.pythonanywhere\.com\//, '');
-  if (!/^https?:\/\//i.test(link)) link = 'https://' + link;
-  return link;
+
+  // If it's already a full URL, return it exactly as is
+  if (/^https?:\/\//i.test(link)) return link;
+
+  // If it starts with a slash, it's a relative path on our own domain
+  if (link.startsWith('/')) return window.location.origin + link;
+
+  // Otherwise, assume it's missing the protocol (e.g., google.com)
+  return 'https://' + link;
 }
 
 /** Return the emoji set for a status category. */
@@ -47,9 +52,9 @@ function getEmojisForCategory(cat) {
 
 /** Determine the media type label from a URL's extension. */
 function mediaTypeFromUrl(url) {
-  if (!url) return { label: '📝 Text', icon: '' };
+  if (!url) return { label: 'Text', icon: '📝' };
   var ext = url.split('.').pop().toLowerCase().split('?')[0];
-  if (['mp4','webm','ogg','mov','3gp'].indexOf(ext) !== -1) return { label: '🎬 Video', icon: '🎬' };
-  if (['jpg','jpeg','png','gif','webp','bmp','svg'].indexOf(ext) !== -1) return { label: '📸 Photo', icon: '📸' };
-  return { label: '📎 Media', icon: '📎' };
+  if (['mp4','webm','ogg','mov','3gp'].indexOf(ext) !== -1) return { label: 'Video', icon: '🎬' };
+  if (['jpg','jpeg','png','gif','webp','bmp','svg'].indexOf(ext) !== -1) return { label: 'Photo', icon: '📸' };
+  return { label: 'Media', icon: '📎' };
 }

@@ -1,18 +1,10 @@
 // ============================================================
 // checkout.js — Fizzme Full Commerce Flow
-//
-// FIX: openDealConfirm added as a public alias for
-//      openPaymentForDeal so any cached caller never throws.
-//      The real fix lives in negotiate.js (_routeBuyerToCheckout)
-//      but this alias acts as a permanent safety net.
-//
-// All other logic is identical to the original.
 // ============================================================
 
 (function () {
   'use strict';
 
-  // ── CSRF ──────────────────────────────────────────────────────
   function getCsrf() {
     var c = document.cookie.split('; ').find(function (r) { return r.startsWith('csrftoken='); });
     return c ? c.split('=')[1] : (window.ASTERIX && window.ASTERIX.CSRF) || '';
@@ -247,17 +239,17 @@
     return [
       '<div class="fz-method-grid" id="fz-method-grid">',
       '  <button class="fz-method-card' + (activeMethod === 'airtel_money' ? ' active' : '') + '" data-method="airtel_money">',
-      '    <div class="fz-method-icon" style="background:#e0001a;"><i class="fas fa-sim-card"></i></div>',
+      '    <div class="fz-method-icon" style="background:#e0001a;"><span style="font-weight:900;font-size:12px;color:#fff;letter-spacing:-.3px;">airtel</span></div>',
       '    <div class="fz-method-label">Airtel Money</div>',
       '    <div class="fz-method-sub">097 · 077</div>',
       '  </button>',
       '  <button class="fz-method-card' + (activeMethod === 'mtn_money' ? ' active' : '') + '" data-method="mtn_money">',
-      '    <div class="fz-method-icon" style="background:#ffc107;color:#000;"><i class="fas fa-mobile-alt"></i></div>',
+      '    <div class="fz-method-icon" style="background:#ffc107;color:#000;"><span style="font-weight:900;font-size:13px;color:#000;">MTN</span></div>',
       '    <div class="fz-method-label">MTN MoMo</div>',
       '    <div class="fz-method-sub">096 · 076</div>',
       '  </button>',
       '  <button class="fz-method-card' + (activeMethod === 'zamtel_kwacha' ? ' active' : '') + '" data-method="zamtel_kwacha">',
-      '    <div class="fz-method-icon" style="background:#009a44;"><i class="fas fa-broadcast-tower"></i></div>',
+      '    <div class="fz-method-icon" style="background:#009a44;"><span style="font-weight:900;font-size:10px;color:#fff;">ZAMTEL</span></div>',
       '    <div class="fz-method-label">Zamtel</div>',
       '    <div class="fz-method-sub">095 · 075</div>',
       '  </button>',
@@ -269,8 +261,8 @@
     return [
       '<div class="fz-method-grid two" id="fz-method-grid-other">',
       '  <button class="fz-method-card' + (activeMethod === 'bank_transfer' ? ' active' : '') + '" data-method="bank_transfer">',
-      '    <div class="fz-method-icon" style="background:#2b579a;"><i class="fas fa-university"></i></div>',
-      '    <div class="fz-method-label">Bank Transfer</div>',
+      '    <div class="fz-method-icon" style="background:#2b579a;"><i class="fas fa-university"></i> <i class="fab fa-cc-visa"></i> <i class="fab fa-cc-mastercard"></i></div>',
+      '    <div class="fz-method-label">Bank &amp; Card</div>',
       '    <div class="fz-method-sub">Zanaco · FNB · Stanbic</div>',
       '  </button>',
       '  <button class="fz-method-card' + (activeMethod === 'cash' ? ' active' : '') + '" data-method="cash">',
@@ -615,8 +607,10 @@
 
     _openOverlay(_payShell('💳', 'Complete Payment',
       _amountHTML(d.final_price, seller) + _detailsCardHTML(d) +
-      '<div class="fz-section-label">Your payment reference (optional)</div>' +
-      '<input id="fz-pay-ref" class="fz-input" type="text" placeholder="e.g. transaction ID or bank reference">' +
+      '<div class="fz-section-label">Proof of payment</div>' +
+      '<input id="fz-pay-ref" class="fz-input" type="text" maxlength="60" placeholder="Reference number (e.g. MoMo transaction ID)">' +
+      '<div class="fz-input-hint" style="margin:8px 0 6px;">Send a screenshot of the payment, the reference number, or both.</div>' +
+      '<input id="fz-pay-proof" class="fz-input" type="file" accept="image/jpeg,image/png,image/webp" style="padding:10px;">' +
       '<div id="fz-checkout-status"></div>' +
       '<button class="fz-cta fz-cta-pay" id="fz-pay-btn"><i class="fas fa-check-circle"></i> I have paid</button>' +
       '<div class="fz-input-hint" style="text-align:center;margin-top:8px;">Tap this only after you have sent the money.</div>'));
@@ -641,26 +635,79 @@
       });
   }
 
+  function _csrfToken() {
+    var m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
   function _submitPay() {
     var d = _state.details;
     if (!d || !d.payment_method) { _setStatus('The seller has not shared payment details yet.', 'err'); return; }
     var ref = ((_el('fz-pay-ref') && _el('fz-pay-ref').value) || '').trim();
+    var input = _el('fz-pay-proof');
+    var file = input && input.files && input.files[0];
+    if (!ref && !file) { _setStatus('Send a screenshot or enter the reference number.', 'err'); return; }
+    if (file && file.size > 2.5 * 1024 * 1024) { _setStatus('That screenshot is over 2.5 MB. Choose a smaller one or enter a reference number.', 'err'); return; }
+
     var btn = _el('fz-pay-btn');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirming…';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending…';
     _setStatus('');
-    window.Asterix.deals.completeDeal(d.deal_id, d.payment_method, d.payment_account, ref)
-      .then(function (res) {
-        _state.deal = res.deal || res || _state.deal;
-        toast('💚 Payment confirmed!', 'Deal complete. Track your delivery.');
-        _openTrackStep();
-        if (typeof _state.onDone === 'function') _state.onDone('completed', _state.deal);
-      })
-      .catch(function (err) {
+
+    var form = new FormData();
+    form.append('deal_id', d.deal_id);
+    form.append('reference', ref);
+    if (file) form.append('proof', file);
+
+    // 👇 USE XMLHttpRequest INSTEAD OF FETCH FOR ANDROID COMPATIBILITY 👇
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/deals/payment-proof/', true);
+    xhr.setRequestHeader('X-CSRFToken', _csrfToken());
+
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var j;
+        try { j = JSON.parse(xhr.responseText); } catch(e) { j = { error: 'Invalid server response' }; }
+
+        if (j.error) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-check-circle"></i> I have paid';
+          _setStatus(j.error, 'err');
+          return;
+        }
+
+        // Proceed to complete deal
+        window.Asterix.deals.completeDeal(d.deal_id, d.payment_method, d.payment_account, j.reference || ref)
+          .then(function (res) {
+            _state.deal = res.deal || res || _state.deal;
+            toast('💚 Payment sent', 'The seller will confirm and get your item ready.');
+            _openTrackStep();
+            if (typeof _state.onDone === 'function') _state.onDone('completed', _state.deal);
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check-circle"></i> I have paid';
+            _setStatus(err.message || 'Could not complete payment.', 'err');
+          });
+      } else {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-check-circle"></i> I have paid';
-        _setStatus(err.message || 'Could not confirm payment.', 'err');
-      });
+        var errMsg = 'Server error (' + xhr.status + ')';
+        try {
+          var errJson = JSON.parse(xhr.responseText);
+          if (errJson.error) errMsg = errJson.error;
+        } catch(e) {}
+        _setStatus(errMsg, 'err');
+      }
+    };
+
+    xhr.onerror = function() {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-check-circle"></i> I have paid';
+      _setStatus('Network error. Check your connection and try again.', 'err');
+    };
+
+    xhr.send(form);
   }
 
   // ── Seller: share payment details ───────────────────────────────
@@ -739,69 +786,18 @@
 
   function _openTrackStep() {
     _state.step = 'track';
-    var status  = _state.status;
-
-    var stepsHtml = DELIVERY_STAGES.map(function (stage, i) {
-      var isDone   = i === 0;
-      var isActive = i === 0;
-      var iconCls  = isDone ? 'done' : isActive ? 'active' : 'pending';
-      var connCls  = isDone ? 'done' : '';
-      return [
-        '<div class="fz-delivery-step">',
-        '  <div style="display:flex;flex-direction:column;align-items:center;">',
-        '    <div class="fz-ds-icon ' + iconCls + '">' + stage.icon + '</div>',
-        i < DELIVERY_STAGES.length - 1 ? '    <div class="fz-ds-connector ' + connCls + '"></div>' : '',
-        '  </div>',
-        '  <div style="flex:1;padding-top:6px;">',
-        '    <div style="font-size:14px;font-weight:' + (isActive ? '700' : '500') + ';color:' + (isDone || isActive ? 'var(--text)' : 'var(--sub)') + ';">' + stage.label + '</div>',
-        isDone ? '<div style="font-size:11px;color:var(--sub);margin-top:2px;">Just now</div>' : '',
-        '  </div>',
-        '</div>',
-      ].join('');
-    }).join('');
-
-    var html = [
-      '<div id="fz-checkout-sheet">',
-      '  <div class="fz-handle"></div>',
-      '  <div class="fz-sheet-header">',
-      '    <span style="font-size:20px;">🚚</span>',
-      '    <span class="fz-sheet-title">Delivery Tracker</span>',
-      '    <button class="fz-sheet-close" id="fz-close-btn"><i class="fas fa-times"></i></button>',
-      '  </div>',
-      '  <div class="fz-sheet-body">',
-      _stepBreadcrumb('track'),
-      _itemStripHTML(status, _state.selectedMedia),
-      '<div style="margin:14px 0;">' + stepsHtml + '</div>',
-      '<div class="fz-escrow-notice" style="border-color:rgba(230,168,23,.2);">',
-      '  <strong style="color:#e6a817;">🔒 Your payment is safe</strong><br>',
-      '  The seller is arranging your item now. You\'ll confirm delivery in chat, ',
-      '  then release payment. <strong style="color:#25d366;">No receive, no pay.</strong>',
-      '</div>',
-      '<button class="fz-cta" id="fz-chat-btn" style="background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;margin-top:16px;">',
-      '  <i class="fas fa-comment-dots"></i> Open Chat with Seller',
-      '</button>',
-      '<button class="fz-cta" id="fz-full-track-btn" style="margin-top:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:var(--text);">',
-      '  <i class="fas fa-map-marker-alt"></i> Full Delivery Details',
-      '</button>',
-      '  </div>',
-      '</div>',
-    ].join('');
-
-    _openOverlay(html);
-    _el('fz-close-btn').onclick = _closeOverlay;
-    _el('fz-chat-btn').onclick  = function () {
-      _closeOverlay();
-      var sellerUsername = _state.status && _state.status.username;
-      if (sellerUsername && window.Asterix && window.Asterix.chat) {
-        window.Asterix.chat.addConversationItem({ username: sellerUsername, profile_picture: '' });
-        window.Asterix.chat.openConversation(sellerUsername);
-        setTimeout(function () { window.Asterix.chat.loadMessages(sellerUsername, true); }, 300);
-      }
-    };
-    _el('fz-full-track-btn').onclick = function () {
-      var dealId = _state.deal && (_state.deal.id || _state.deal.deal_id);
-      if (dealId && window.Asterix && window.Asterix.pro) window.Asterix.pro.openDeliveryPanel(dealId);
-    };
+    _closeOverlay();
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Payment Sent!',
+        text: 'Open the Track delivery link on the deal card in this chat to continue.',
+        confirmButtonColor: '#128c7e',
+        confirmButtonText: 'OK'
+      });
+    } else {
+      alert('Payment Sent! Open the Track delivery link on the deal card in this chat to continue.');
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1088,7 +1084,7 @@
     _el('fz-multi-done-btn').onclick   = _closeOverlay;
     document.querySelectorAll('[data-track-id]').forEach(function (btn) {
       btn.onclick = function () {
-        if (window.Asterix && window.Asterix.pro) window.Asterix.pro.openDeliveryPanel(btn.dataset.trackId);
+        if (window.Asterix && window.Asterix.pro) window.location.href = '/deals/' + btn.dataset.trackId + '/delivery/';
       };
     });
   }
@@ -1116,13 +1112,11 @@
     open:               openCheckout,
     openMulti:          openMultiCheckout,
     openPaymentForDeal: openPaymentForDeal,
-    // FIX: alias so any cached negotiate.js caller never throws TypeError
     openDealConfirm:    openPaymentForDeal,
     openTrack:          _openTrackStep,
     close:              _closeOverlay,
   };
 
-  // ── Backwards-compat shim for payment.open() ─────────────────
   function _shimOldPayment() {
     if (!window.Asterix.payment) {
       window.Asterix.payment = { open: openPaymentForDeal, close: _closeOverlay };
@@ -1139,5 +1133,5 @@
     _shimOldPayment();
   }
 
-  console.log('[Fizzme] checkout.js loaded — FIX: openDealConfirm alias added to public API');
+  console.log('[Fizzme] checkout.js loaded (XHR fix for Android)');
 })();

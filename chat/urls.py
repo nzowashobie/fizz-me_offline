@@ -5,17 +5,22 @@ from django.urls import path
 from django.contrib.auth.views import LoginView, LogoutView
 from . import views
 from .views.views_commerce import payment_details as deal_payment_details
-from .views.views_delivery import deal_receipt as deal_receipt_view, set_delivery_method as deal_set_method
+from .views.views_delivery import deal_receipt as deal_receipt_view, set_delivery_method as deal_set_method, deal_delivery_page as deal_delivery_view
+from .views.views_delivery import upload_payment_proof, payment_proof_file
+from .views.views_broadcast import staff_broadcast, app_version
 from .views import get_online_users, service_worker, save_push_subscription, delete_push_subscription
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import ensure_csrf_cookie
+from .views import fcm_register, fcm_unregister
 from django.views.generic import TemplateView
 
 urlpatterns = [
     # ── Pages ─────────────────────────────────────────────────────────────
     path('',             views.chat_view,   name='chat-page'),
-    path('auth/login/',  LoginView.as_view(template_name='Loginpage.html'), name='login-user'),
+    path('auth/login/',never_cache(ensure_csrf_cookie(LoginView.as_view(template_name='Loginpage.html', redirect_authenticated_user=True))),name='login-user'),
     path('auth/logout/', LogoutView.as_view(), name='logout-user'),
-    path('auth/signup/', views.signup_view, name='signup-user'),
+    path('auth/signup/', never_cache(ensure_csrf_cookie(views.signup_view)), name='signup-user'),
 
     # ── Encryption ────────────────────────────────────────────────────────
     path('api/key/',     views.get_public_key, name='get-public-key'),
@@ -27,6 +32,9 @@ urlpatterns = [
     path('api/messages/unread_count/',            views.get_unread_message_count, name='unread-count'),
     path('api/messages/delete/<int:message_id>/', views.delete_message,           name='delete-message'),
     path('api/messages/poll/',                    views.poll_messages,            name='poll-messages'),
+    path('api/messages/typing/',                  views.send_typing,              name='send-typing'),
+    path('api/messages/typing/check/',            views.check_typing,             name='check-typing'),
+    path('api/messages/read-status/',             views.read_status,              name='read-status'),
 
     # ── Profile ───────────────────────────────────────────────────────────
     path('api/upload-profile-picture/', views.upload_profile_picture, name='upload-profile-picture'),
@@ -44,9 +52,12 @@ urlpatterns = [
     path('api/status/feed/<str:category_name>/', views.get_categorized_status_feed, name='status-feed'),
     path('api/status/upload/',                   views.upload_status,               name='status-upload'),
     path('api/status/mine/',                     views.my_status_page,              name='my-status'),
+    path('api/status/view/',                     views.record_status_view,          name='record-status-view'),
+    path('api/status/<int:status_id>/views/',    views.get_status_views,            name='status-views'),
     path('api/status/<int:status_id>/delete/',   views.delete_status,               name='delete-status'),
     path('api/status/<int:status_id>/edit/',     views.edit_status,                 name='edit-status'),
-    path('api/status/share-file/',               views.share_status_to_external,    name='share-status-file'),
+    path('api/status/share-file/', views.share_status_to_external, name='share-status-file'),
+    path('share/listing/<int:status_id>/', views.share_listing_view, name='share-listing'),
     path('api/status/proxy-media/',              views.proxy_status_media,          name='proxy-status-media'),
 
     # ── Contacts ──────────────────────────────────────────────────────────
@@ -66,6 +77,7 @@ urlpatterns = [
     path('api/events/<int:event_id>/guests/',           views.event_guest_list,       name='event-guests'),
     path('api/events/<int:event_id>/share-to-status/', views.share_event_to_status,  name='event-share-status'),
     path('api/events/mine/',                            views.get_my_events,          name='my-events'),
+    path('api/events/my/',                              views.my_events,              name='my-events-list'),
     path('events/invite/<uuid:invite_token>/',          views.event_invite_view,      name='event-invite-card'),
 
     # ── Offers & Deals (Zambian bargaining engine) ────────────────────────
@@ -78,6 +90,9 @@ urlpatterns = [
     path('api/deals/payment-details/', deal_payment_details, name='deal-payment-details'),
     path('api/delivery/method/', deal_set_method, name='delivery-method'),
     path('deals/<int:deal_id>/receipt/', deal_receipt_view, name='deal-receipt'),
+    path('deals/<int:deal_id>/delivery/', deal_delivery_view, name='deal-delivery'),
+    path('api/deals/payment-proof/', upload_payment_proof, name='deal-payment-proof'),
+    path('deals/<int:deal_id>/proof/', payment_proof_file, name='deal-payment-proof-file'),
     path('api/deals/cancel/',    views.cancel_deal,      name='cancel_deal'),
     path('api/negotiate/chat/',  views.negotiate_chat,   name='negotiate_chat'),
 
@@ -101,5 +116,17 @@ urlpatterns = [
     path('api/push/subscribe/',        save_push_subscription,      name='push-subscribe'),
     path('api/push/unsubscribe/',      delete_push_subscription,    name='push-unsubscribe'),
     path("videos/", login_required(TemplateView.as_view(template_name="videos.html")), name="video_page"),
+    path('terms/', TemplateView.as_view(template_name='legal_terms.html'), name='terms'),
+    path('privacy/', TemplateView.as_view(template_name='legal_privacy.html'), name='privacy'),
+    path('staff/broadcast/', staff_broadcast, name='staff-broadcast'),
+    path('api/app-version/', app_version, name='app-version'),
+
+    #FCM================================
+    path('api/push/subscribe/',        save_push_subscription,   name='push-subscribe'),
+    path('api/push/unsubscribe/',      delete_push_subscription, name='push-unsubscribe'),
+    path('api/push/fcm/register/',     fcm_register,             name='fcm-register'),
+    path('api/push/fcm/unregister/',   fcm_unregister,           name='fcm-unregister'),
+    path('api/status/unread-counts/', views.get_unread_status_counts, name='unread-status-counts'),
+    path('download-app/', views.download_apk, name='download-apk'),
 
 ]

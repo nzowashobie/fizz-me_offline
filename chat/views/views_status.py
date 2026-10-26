@@ -12,8 +12,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils.timezone import now
 from django.db import transaction
-from ..models import StatusCategory, UserStatus, AdCampaign, StatusMedia
+from ..models import StatusCategory, UserStatus, AdCampaign, StatusMedia, Contact
 from .views_utils import _utc_iso, _profile_pic, _get_file_url, _delete_file, _fetch_file_bytes
+from ..models import Contact, UserStatus, StatusView
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +103,13 @@ def get_categorized_status_feed(request, category_name):
     try:
         category, _ = StatusCategory.objects.get_or_create(name=category_name)
         threshold = now() - timedelta(hours=24)
+
+        # Only show statuses from people in the user's contact list
+        contact_ids = Contact.objects.filter(owner=request.user).values_list('contact_user_id', flat=True)
+        valid_user_ids = list(contact_ids) + [request.user.id]
+
         user_statuses = UserStatus.objects.filter(
-            category=category, created_at__gte=threshold
+            category=category, created_at__gte=threshold, user_id__in=valid_user_ids
         ).select_related('user', 'user__profile').prefetch_related('media_items').order_by('created_at')
 
         ad = AdCampaign.objects.filter(category=category, is_active=True).first()
@@ -162,7 +168,7 @@ def get_categorized_status_feed(request, category_name):
                     'market_link': status.market_link or '',
                     'timestamp': _utc_iso(status.created_at),
                 }
-                if status.is_commercial:
+                if status.is_commercial and category.name == 'Market':
                     item.update({
                         'is_commercial': True,
                         'price': str(status.price) if status.price is not None else None,
@@ -208,6 +214,9 @@ def upload_status(request):
     category_name = (request.POST.get('category') or 'General').strip()
 
     is_commercial = request.POST.get('is_commercial', '').strip().lower() == 'true'
+    # Business listings live only in the Market category.
+    if is_commercial and category_name != 'Market':
+        is_commercial = False
 
     price_raw = request.POST.get('price', '').strip()
     price = None
@@ -223,6 +232,14 @@ def upload_status(request):
     availability = request.POST.get('availability', 'available').strip()
     if availability not in ('available', 'reserved', 'sold'):
         availability = 'available'
+
+    quantity_raw = request.POST.get('quantity', '1').strip()
+    try:
+        quantity = int(quantity_raw)
+        if quantity < 1:
+            quantity = 1
+    except ValueError:
+        quantity = 1
 
     valid_product_categories = {'clothing', 'shoes', 'cosmetics', 'bags', 'household', 'other'}
     product_category = request.POST.get('product_category', '').strip()
@@ -256,6 +273,7 @@ def upload_status(request):
                 product_category=product_category,
                 custom_tag=custom_tag,
                 collection_point=collection_point,
+                quantity=quantity,
             )
 
             saved_media = []
@@ -321,6 +339,20 @@ def upload_status(request):
         return JsonResponse({"error": f"Upload failed: {str(e)}"}, status=500)
 
 
+# ─── Public Listing Share View ───────────────────────────────────────────
+from django.shortcuts import redirect
+from django.urls import reverse
+
+@login_required(login_url='/auth/login/')
+def share_listing_view(request, status_id):
+    """Public link that redirects the buyer straight to the chat with the seller."""
+    try:
+        status = UserStatus.objects.get(id=status_id)
+        # Redirect to the chat page with the username and status ID in the URL
+        return redirect(f"/?chat={status.user.username}&status={status_id}")
+    except UserStatus.DoesNotExist:
+        return redirect('/')
+
 # ─── Other endpoints ──────────────────────────────────────────────────
 @csrf_exempt
 @login_required
@@ -360,6 +392,49 @@ def share_status_to_external(request):
         "caption": status.caption or '',
     })
 
+from ..models import StatusView
+from django.utils.timesince import timesince
+
+@csrf_exempt
+@login_required
+def record_status_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    try:
+        import json
+        data = json.loads(request.body)
+        status_id = data.get('status_id')
+        if not status_id:
+            return JsonResponse({'error': 'status_id required'}, status=400)
+
+        status_obj = UserStatus.objects.get(id=status_id)
+        if status_obj.user != request.user:
+            StatusView.objects.get_or_create(status=status_obj, viewer=request.user)
+
+        return JsonResponse({'status': 'success'})
+    except UserStatus.DoesNotExist:
+        return JsonResponse({'error': 'Status not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+def get_status_views(request, status_id):
+    try:
+        status_obj = UserStatus.objects.get(id=status_id, user=request.user)
+    except UserStatus.DoesNotExist:
+        return JsonResponse({'error': 'Status not found or not yours'}, status=404)
+
+    views = StatusView.objects.filter(status=status_obj).select_related('viewer', 'viewer__profile').order_by('-viewed_at')
+
+    result = []
+    for v in views:
+        result.append({
+            'username': v.viewer.username,
+            'profile_picture': _profile_pic(v.viewer),
+            'time_ago': timesince(v.viewed_at) + ' ago',
+        })
+    return JsonResponse({'views': result})
+
 @login_required
 def my_status_page(request):
     threshold = now() - timedelta(hours=24)
@@ -379,8 +454,17 @@ def my_status_page(request):
         if not media_urls and media_url:
             media_urls = [media_url]
 
+        event_id = None
+        try:
+            share = s.event_shares.first()
+            if share:
+                event_id = share.event.id
+        except Exception:
+            pass
+
         grouped.setdefault(cat, []).append({
             'status_id': s.id,
+            'event_id': event_id,
             'media_url': media_url,
             'media_urls': media_urls,
             'media_count': len(media_urls) or (1 if media_url else 0),
@@ -392,12 +476,33 @@ def my_status_page(request):
             'price': str(s.price) if s.price is not None else '',
             'is_negotiable': s.is_negotiable,
             'availability': s.availability or 'available',
+            'quantity': s.quantity,
             'product_category': s.product_category or '',
             'custom_tag': s.custom_tag or '',
             'collection_point': s.collection_point or '',
+            'views_count': s.views.count(), # 👈 THIS IS THE FIX
         })
     categories = list(StatusCategory.objects.values('id', 'name', 'icon'))
     return JsonResponse({"my_statuses": grouped, "categories": categories})
+
+
+@login_required
+def get_status_views(request, status_id):
+    try:
+        status_obj = UserStatus.objects.get(id=status_id, user=request.user)
+    except UserStatus.DoesNotExist:
+        return JsonResponse({'error': 'Status not found or not yours'}, status=404)
+
+    views = StatusView.objects.filter(status=status_obj).select_related('viewer', 'viewer__profile').order_by('-viewed_at')
+
+    result = []
+    for v in views:
+        result.append({
+            'username': v.viewer.username,
+            'profile_picture': _profile_pic(v.viewer),
+            'time_ago': timesince(v.viewed_at) + ' ago',
+        })
+    return JsonResponse({'views': result})
 
 @csrf_exempt
 @login_required
@@ -448,6 +553,12 @@ def edit_status(request, status_id):
             avail = 'available'
         status.availability = avail
         update_fields.append('availability')
+
+    if 'quantity' in data:
+        qty_raw = str(data.get('quantity')).strip()
+        if qty_raw.isdigit():
+            status.quantity = max(1, int(qty_raw))
+            update_fields.append('quantity')
 
     valid_product_categories = {'clothing', 'shoes', 'cosmetics', 'bags', 'household', 'other'}
     if 'product_category' in data:
@@ -516,3 +627,34 @@ def delete_status(request, status_id):
 
     status.delete()
     return JsonResponse({"status": "success", "message": "Status deleted."})
+
+#status indicators
+
+@login_required
+def get_unread_status_counts(request):
+    """
+    Returns a dictionary of unread status counts per category.
+    """
+    threshold = now() - timedelta(hours=24)
+
+    # 1. Get user's contacts
+    contact_ids = Contact.objects.filter(owner=request.user).values_list('contact_user_id', flat=True)
+
+    # 2. Find statuses created in the last 24h that belong to contacts
+    # AND exclude the user's own statuses (you don't need a badge for your own posts)
+    unread_statuses = UserStatus.objects.filter(
+        created_at__gte=threshold,
+        user_id__in=contact_ids
+    ).exclude(
+        user=request.user # 👈 Exclude own statuses
+    ).exclude(
+        views__viewer=request.user # 👈 Exclude statuses already viewed
+    )
+
+    # 3. Count them by category
+    counts = {}
+    for status in unread_statuses:
+        cat = status.category.name if status.category else 'General'
+        counts[cat] = counts.get(cat, 0) + 1
+
+    return JsonResponse({'counts': counts})

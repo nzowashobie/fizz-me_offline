@@ -264,11 +264,8 @@ def respond_to_offer(request):
         locked_status = UserStatus.objects.select_for_update().get(pk=offer.status_id)
 
         if action == "accept":
-            if locked_status.availability in ("sold", "reserved"):
-                return JsonResponse(
-                    {"error": "This item was taken by another buyer while you were negotiating."},
-                    status=409,
-                )
+            if locked_status.availability != 'available' or getattr(locked_status, 'quantity', 1) <= 0:
+                return JsonResponse({"error": "This item was taken by another buyer while you were negotiating."}, status=409)
             offer.state = "accepted"
             offer.responded_at = now()
             offer.save()
@@ -280,8 +277,10 @@ def respond_to_offer(request):
                 seller_confirmed=True, seller_confirmed_at=now(),
                 state="confirmed",
             )
-            locked_status.availability = "reserved"
-            locked_status.save(update_fields=["availability"])
+            locked_status.quantity -= 1
+            if locked_status.quantity == 0:
+                locked_status.availability = "sold"
+            locked_status.save(update_fields=["quantity", "availability"])
             _create_system_msg(
                 sender=request.user, recipient=other,
                 text=(f"{card}\n\n✅ Deal agreed at {_fmt_price(offer.amount)}!{note_line}\n\n"
@@ -538,11 +537,8 @@ def take_listing(request):
 
         if not status.is_commercial:
             return JsonResponse({"error": "This status is not for sale"}, status=400)
-        if status.availability != 'available':
-            return JsonResponse(
-                {"error": "This item is no longer available — someone else just reserved it."},
-                status=409,
-            )
+        if status.availability != 'available' or getattr(status, 'quantity', 1) <= 0:
+            return JsonResponse({"error": "This item is no longer available — someone else just reserved it."}, status=409)
         if status.user == request.user:
             return JsonResponse({"error": "You cannot buy your own listing"}, status=403)
         if status.price is None:
@@ -560,8 +556,10 @@ def take_listing(request):
         )
         # Mark reserved immediately — any concurrent select_for_update
         # on this row will now see 'reserved' and bail.
-        status.availability = 'reserved'
-        status.save(update_fields=['availability'])
+        status.quantity -= 1
+        if status.quantity == 0:
+            status.availability = 'sold'
+        status.save(update_fields=['quantity', 'availability'])
 
         card     = _listing_card_text(status, selected_media_url)
         buy_text = (
@@ -713,6 +711,12 @@ def complete_deal(request):
             status=400,
         )
 
+    if not deal.payment_proof and not deal.payment_reference:
+        return JsonResponse(
+            {'error': 'You must upload a payment screenshot or provide a reference number first.'},
+            status=400,
+        )
+
     with transaction.atomic():
         deal.state             = 'completed'
         deal.payment_method    = payment_method
@@ -722,8 +726,8 @@ def complete_deal(request):
 
         status_obj = deal.status
         if status_obj:
-            status_obj.availability = 'sold'
-            status_obj.save(update_fields=['availability'])
+            # Availability is already handled by quantity during take_listing/accept
+            pass
 
         method_label = _METHOD_LABELS.get(payment_method, payment_method)
         card         = _listing_card_text(status_obj)
@@ -780,10 +784,11 @@ def cancel_deal(request):
 
     with transaction.atomic():
         locked_status = UserStatus.objects.select_for_update().get(pk=deal.status_id)
-        deal.state            = 'cancelled'
+        deal.state = 'cancelled'
         deal.save()
+        locked_status.quantity += 1
         locked_status.availability = 'available'
-        locked_status.save(update_fields=['availability'])
+        locked_status.save(update_fields=['quantity', 'availability'])
 
         other = deal.seller if request.user == deal.buyer else deal.buyer
         card  = _listing_card_text(locked_status)

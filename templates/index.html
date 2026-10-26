@@ -6,12 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#128c7e">
+  <meta name="mobile-web-app-capable" content="yes">
+  <!-- iOS compatibility -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Fizz-me">
+  <meta name="apple-mobile-web-app-title" content="Fizzme">
+
   <link rel="icon" href="{% static 'images/favicon-32.png' %}" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
-  <title>Fizz-me</title>
+  <title>Fizzme</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <link rel="stylesheet" href="{% static 'css/style.css' %}">
   <style>
@@ -53,17 +56,14 @@
       color: #25d366;
     }
   </style>
-  <!-- Removed: previous service-worker force-unregister script. It ran on
-       every page load and tore down any registered SW, which meant push
-       notifications could never survive past the current tab session —
-       directly at odds with the push notification work in this app. -->
+
 </head>
 <body>
 
 <!-- ── SPLASH SCREEN ─────────────────────────────────────────────── -->
 <div id="loading-splash" style="position:fixed;inset:0;background:#111616;display:flex;align-items:center;justify-content:center;z-index:999999;color:#25d366;font-size:24px;font-weight:700;flex-direction:column;gap:12px;">
   <img src="{% static 'images/icon-192.png' %}" alt="" style="width:88px;height:88px;">
-  <span>Fizz-me</span>
+  <span>Fizzme</span>
   <div style="width:60px;height:4px;background:#2a2f2f;border-radius:2px;overflow:hidden;">
     <div style="width:0%;height:100%;background:#25d366;animation:loadBar 1.2s ease-in-out infinite;"></div>
   </div>
@@ -291,18 +291,24 @@
   <div id="ua-add-contact"        class="ua-item"><i class="fas fa-user-plus"></i> Add Contact</div>
   <div id="ua-toggle-sound"       class="ua-item"><i class="fas fa-bell"></i> <span id="ua-sound-text">Mute Notifications</span></div>
   <div id="ua-partners-modal-btn" class="ua-item"><i class="fas fa-satellite-dish"></i> Partners</div>
-  <a id="ua-videos-btn" href="{% url 'video_page' %}" class="ua-item" data-videos-badge style="text-decoration:none;color:inherit;"><i class="fas fa-play-circle"></i> Videos</a>
+ <!-- <a id="ua-videos-btn" href="{% url 'video_page' %}" class="ua-item" data-videos-badge style="text-decoration:none;color:inherit;"><i class="fas fa-play-circle"></i> Videos</a>-->
   <div id="ua-settings"           class="ua-item"><i class="fas fa-cog"></i> Settings</div>
+  <div id="ua-reload-app" class="ua-item"><i class="fas fa-sync-alt"></i> Reload app</div>
   <div class="ua-item" style="height:1px;background:var(--border);padding:0;margin:2px 0;"></div>
   <div id="ua-clear"              class="ua-item"><i class="fas fa-trash-alt"></i> Clear Chat</div>
   <div id="ua-remove-contact"     class="ua-item"><i class="fas fa-user-minus"></i> Remove Contact</div>
   <div id="ua-block"              class="ua-item danger"><i class="fas fa-ban"></i> Block User</div>
-  <form method="post" action="{% url 'logout-user' %}" style="display:contents;" id="logout-form">
+  <div class="ua-item" style="height:1px;background:var(--border);padding:0;margin:2px 0;"></div>
+   <!-- href to /download-app/ -->
+  <a href="/download-app/" class="ua-item" style="text-decoration:none;color:inherit;" download>
+    <i class="fab fa-android" style="color:#25d366;"></i> Download Android App
+  </a>
+<!--  <form method="post" action="{% url 'logout-user' %}" style="display:contents;" id="logout-form">
     {% csrf_token %}
     <button type="submit" class="ua-item" id="ua-logout" style="background:none;border:none;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer;">
       <i class="fas fa-sign-out-alt"></i> Logout
     </button>
-  </form>
+  </form>-->
 </div>
 
 <!-- JS: Django context vars -->
@@ -432,5 +438,12 @@
 
 <script src="{% static 'chat/asterix_videos/videos_badge.js' %}" defer></script>
 <script src="{% static 'chat/logout_csrf.js' %}" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{% static 'js/modules/media_viewer.js' %}" defer></script>
+<script src="{% static 'js/modules/pwa_install.js' %}" defer></script>
+<script src="{% static 'js/modules/bible-preview.js' %}"></script>
+<script src="{% static 'js/modules/app_update.js' %}" defer></script>
+<script src="{% static 'js/modules/online.js' %}" defer></script>
+<script src="{% static 'js/modules/contact_form.js' %}" defer></script>
 </body>
 </html>

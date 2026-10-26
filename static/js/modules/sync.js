@@ -14,15 +14,11 @@
   var dbReady = false;
   var syncTimer = null;
 
-  // ── In-flight send guard ─────────────────────────────────────────
-  // chat.js's own 'online' listener AND this module's 'online' listener
-  // both call flushOutgoingQueue() on the same reconnect event. Without
-  // this, both calls independently read the same still-'pending' message
-  // from IndexedDB and both POST it, producing a duplicate message
-  // server-side. This Set makes flushOutgoingQueue() safe to call any
-  // number of times concurrently — each local message can only be
-  // "claimed" by one in-flight send at a time.
   var inFlightIds = new Set();
+
+  function isValidRecipient(recipient) {
+    return recipient && typeof recipient === 'string' && recipient.trim() !== '';
+  }
 
   function openDB() {
     return new Promise(function(resolve, reject) {
@@ -63,6 +59,7 @@
   }
 
   function getMessages(recipient, limit) {
+    if (!isValidRecipient(recipient)) return Promise.resolve([]);
     return openDB().then(function(d) {
       return new Promise(function(resolve, reject) {
         var tx = d.transaction(STORE_NAME, 'readonly');
@@ -145,6 +142,7 @@
   }
 
   function deleteMessagesForRecipient(recipient) {
+    if (!isValidRecipient(recipient)) return Promise.resolve(0);
     return openDB().then(function(d) {
       return new Promise(function(resolve, reject) {
         var tx = d.transaction(STORE_NAME, 'readwrite');
@@ -169,6 +167,7 @@
   }
 
   function markAsRead(recipient) {
+    if (!isValidRecipient(recipient)) return Promise.resolve(0);
     return openDB().then(function(d) {
       return new Promise(function(resolve, reject) {
         var tx = d.transaction(STORE_NAME, 'readwrite');
@@ -267,12 +266,6 @@
   function flushOutgoingQueue() {
     if (!navigator.onLine) return Promise.resolve();
     return getPendingMessages().then(function(pending) {
-      // Claim every message we're about to send *synchronously*, right
-      // here, before any async work (fetch, etc.) starts. If this function
-      // is already running elsewhere (e.g. called by both chat.js's and
-      // this module's 'online' listeners on the same reconnect), that
-      // other call already claimed these ids and we skip them — the
-      // message only ever gets sent once.
       var toSend = pending.filter(function(msg) {
         return !msg.server_id && !inFlightIds.has(msg.id);
       });
@@ -329,6 +322,7 @@
   }
 
   function mergeMessages(recipient, serverMsgs) {
+    if (!isValidRecipient(recipient)) return Promise.resolve();
     return Promise.all([openDB(), getPendingDeleteIds()]).then(function(results) {
       var d = results[0];
       var deletedIds = new Set(results[1]);
@@ -364,7 +358,7 @@
                 reply_text: sMsg.reply_text || '',
                 reply_media: sMsg.reply_media || '',
                 profile_picture: sMsg.profile_picture || '',
-                related_status: sMsg.related_status || null   // NEW — commerce: which product this thread is about
+                related_status: sMsg.related_status || null
               };
               store.put(localMsg);
             });
@@ -412,5 +406,5 @@
     flushPendingDeletes();
   });
 
-  console.log('[Asterix] Sync module loaded (with deleteMessagesForRecipient)');
+  console.log('[Asterix] Sync module loaded (with safety checks)');
 })();

@@ -15,43 +15,75 @@ import cloudinary
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Explicitly point to the .env file so it loads regardless of working directory
-load_dotenv(Path(__file__).resolve().parent.parent / '.env')
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Explicitly point to the .env file so it loads regardless of working directory
+load_dotenv(BASE_DIR / '.env')
+
+
+def env_bool(name, default=False):
+    """Read a boolean from the environment ('1', 'true', 'yes', 'on' → True)."""
+    return os.environ.get(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECURITY
 # ─────────────────────────────────────────────────────────────────────────────
 
-# SECURITY WARNING: keep the secret key used in production secret!
-# Move this to .env as  SECRET_KEY=your-secret-key  when you go to production.
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    'django-insecure-&nkll%42#r$^)olu=)l89$*6s$%up&8%n#6*&=(gt27qh#4-$4',
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+# FIX: the old line was  == 'False'  which inverted the setting
+# (DEBUG=True in .env gave DEBUG=False, and a missing DEBUG gave DEBUG=True).
+# Now DEBUG is True only when .env says so. Set DEBUG=False on PythonAnywhere.
+DEBUG = env_bool('DEBUG', False)
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-only-key-do-not-use-in-production'
+    else:
+        raise RuntimeError('SECRET_KEY is not set. Add SECRET_KEY=... to your .env file.')
 
-# Put this BEFORE load_dotenv and everything else
-cloudinary.config(
-    cloud_name="z2osur68",
-    api_key="836913491123834",
-    api_secret="UiJ9pN2z1R07vBzH7m-6WtDrL1A",
-    api_proxy="http://proxy.server:3128"
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', '*').split(',') if h.strip()]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLOUDINARY — credentials come from .env
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   CLOUDINARY_CLOUD_NAME=your-cloud-name
+#   CLOUDINARY_API_KEY=123456789012345
+#   CLOUDINARY_API_SECRET=your-api-secret
+#   CLOUDINARY_SIGNED_URLS=False
+#   CLOUDINARY_API_PROXY=http://proxy.server:3128     # PythonAnywhere free accounts only
+#
+_cloudinary_kwargs = dict(
+    cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.environ.get('CLOUDINARY_API_KEY'),
+    api_secret=os.environ.get('CLOUDINARY_API_SECRET'),
+    secure=True,
+
 )
+# PythonAnywhere free accounts reach the internet through a proxy; leave this
+# variable out of .env anywhere else (local dev, paid plans) or uploads will fail.
+if os.environ.get('CLOUDINARY_API_PROXY'):
+    _cloudinary_kwargs['api_proxy'] = os.environ['CLOUDINARY_API_PROXY']
+
+cloudinary.config(**_cloudinary_kwargs)
+
+# Read this wherever you build Cloudinary URLs: settings.CLOUDINARY_SIGNED_URLS
+CLOUDINARY_SIGNED_URLS = env_bool('CLOUDINARY_SIGNED_URLS', False)
+
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # APPLICATION DEFINITION
 # ─────────────────────────────────────────────────────────────────────────────
 
 INSTALLED_APPS = [
-   # 'daphne',
+    # 'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -59,21 +91,21 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     # 'cloudinary_storage',
     'django.contrib.staticfiles',
-    #'channels',
+    # 'channels',
     'phonenumber_field',
     'encrypted_model_fields',
     'cloudinary',           # Cloudinary core SDK
-   # 'cloudinary_storage',   # django-cloudinary-storage (for Admin thumbnails)
-    'chat',                 #
+    # 'cloudinary_storage',   # django-cloudinary-storage (for Admin thumbnails)
+    'chat',
 ]
 
-#ASGI_APPLICATION = 'projec.asgi.application'
+# ASGI_APPLICATION = 'projec.asgi.application'
 
-#CHANNEL_LAYERS = {
- #   "default": {
-  #      "BACKEND": "channels.layers.InMemoryChannelLayer",
-  #  }
-#}
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels.layers.InMemoryChannelLayer",
+#     }
+# }
 ASTERIX_MESSAGE_MODEL = "chat.Message"
 
 LOGIN_URL            = "login-user"
@@ -84,17 +116,17 @@ LOGOUT_REDIRECT_URL  = "login-user"
 # Django 4.2+ requires CSRF_TRUSTED_ORIGINS to be set explicitly when the
 # site is behind a proxy (which PythonAnywhere always is). Without this,
 # the logout POST gets rejected with "CSRF token from POST incorrect".
-import os as _os
-
 CSRF_TRUSTED_ORIGINS = [
     'https://fizzme.pythonanywhere.com',
     'https://*.pythonanywhere.com',
-]
-# If you use a custom domain, add it here too:
-# CSRF_TRUSTED_ORIGINS.append('https://yourdomain.com')
 
-# Only enforce secure cookies when we're actually on HTTPS.
-# On PythonAnywhere DEBUG=False, so these turn on — correct.
+]
+
+
+
+# Only enforce secure cookies when we're actually on HTTPS (i.e. DEBUG is off).
+# NOTE: with DEBUG=False these cookies are only sent over https, so local
+# testing over plain http://127.0.0.1 needs DEBUG=True in your local .env.
 CSRF_COOKIE_SECURE    = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY  = False   # JS must read csrftoken from cookie (api.js does)
@@ -102,16 +134,24 @@ CSRF_COOKIE_SAMESITE  = 'Lax'
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_NAME      = 'csrftoken'   # explicit — JS reads this by name
 CSRF_USE_SESSIONS     = False         # keep token in cookie, not session
+CSRF_FAILURE_VIEW = 'chat.csrf_views.csrf_failure'
+
+# Behind PythonAnywhere's proxy, tell Django when the original request was https.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # ──────────────────────────────────────────────────────────────────────
 
 # Custom user model
 AUTH_USER_MODEL = 'chat.CustomUser'
 
 
-####
+# ─────────────────────────────────────────────────────────────────────────────
+# WEB PUSH (VAPID)
+# ─────────────────────────────────────────────────────────────────────────────
 VAPID_PRIVATE_KEY_PATH = os.environ.get('VAPID_PRIVATE_KEY_PATH', BASE_DIR / 'vapid_private.pem')
-VAPID_PUBLIC_KEY       = os.environ.get('VAPID_PUBLIC_KEY', 'BNJjjTTV-QyfjgYtLN9-omVtAlwM1cHewLr2y6WrqVHhend4RBUeusVJ-AHBTiWyD31jyduZ8HWI93zK6vVstCE')  # env var overrides; falls back to your generated key
-VAPID_CLAIM_EMAIL      = 'mailto:nzowashobie@gmail.com'              # required by the push spec — use a real contact address
+VAPID_PUBLIC_KEY       = os.environ.get('VAPID_PUBLIC_KEY', 'BNJjjTTV-QyfjgYtLN9-omVtAlwM1cHewLr2y6WrqVHhend4RBUeusVJ-AHBTiWyD31jyduZ8HWI93zK6vVstCE')
+VAPID_CLAIM_EMAIL      = os.environ.get('VAPID_CLAIM_EMAIL', 'mailto:nzowashobie@gmail.com')
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MIDDLEWARE
@@ -187,7 +227,6 @@ USE_TZ        = True
 # ─────────────────────────────────────────────────────────────────────────────
 # STATIC FILES
 # ─────────────────────────────────────────────────────────────────────────────
-# Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 
 # Where `collectstatic` writes everything for production serving
@@ -197,37 +236,24 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'staticfiles'),
 ]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MEDIA FILES  (user-uploaded content)
 # ─────────────────────────────────────────────────────────────────────────────
 # MEDIA_URL / MEDIA_ROOT are kept so the Django admin's <img> previews don't
 # break and so local-dev fallback still works without Cloudinary credentials.
-# In production all actual file I/O goes through Cloudinary (see below).
+# In production all actual file I/O goes through Cloudinary (see above).
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'my_cache_table',
+    }
+}
 
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CLOUDINARY — media storage
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# Add these three lines to your .env file (never commit real values to git):
-#
-#   CLOUDINARY_CLOUD_NAME=your-cloud-name
-#   CLOUDINARY_API_KEY=123456789012345
-#   CLOUDINARY_API_SECRET=your-api-secret
-#
-# The cloudinary_storage.py backend reads them from the environment via
-# os.environ / django.conf.settings, so no extra wiring is needed.
-
-
-# ── Tell Django to use our custom Cloudinary storage backend for ALL
-#    FileField / ImageField saves across the entire project.
-#    cloudinary_storage.py lives at the project root (same level as manage.py).
-#    If you move it inside an app folder (e.g. chat/) change the dotted path
-#    to  'chat.cloudinary_storage.CloudinaryMediaStorage'.
-#DEFAULT_FILE_STORAGE = 'chat.cloudinary_storage.CloudinaryMediaStorage'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -235,3 +261,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # ─────────────────────────────────────────────────────────────────────────────
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FCM (Firebase Cloud Messaging) — Android push notifications
+# ─────────────────────────────────────────────────────────────────────────────
+FIREBASE_CREDENTIALS = os.environ.get(
+    'FIREBASE_CREDENTIALS',
+    '/home/fizzme/secrets/firebase-service-account.json',
+)

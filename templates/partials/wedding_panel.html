@@ -8,10 +8,13 @@
   #wedding-panel-overlay.open { display:block; }
   #wedding-panel {
     display:none; position:fixed; bottom:0; left:0; width:var(--sidebar-w);
-    max-height:92vh; background:#1a1f1f; border-top:2px solid #e91e63;
+    max-height:92vh; background:var(--card, #1a1f1f); border-top:2px solid #e91e63;
     border-radius:16px 16px 0 0; z-index:19001; overflow-y:auto;
     box-shadow:0 -4px 24px rgba(0,0,0,.7); animation:slideUp .25s ease-out;
   }
+  .wp-field { display: flex; flex-direction: column; gap: 4px; }
+  .wp-field-row { display: flex; gap: 10px; }
+  .wp-field-row .wp-field { flex: 1; }
   #wedding-panel.open { display:block; }
   .wp-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; border-bottom:1px solid var(--border); }
   .wp-header h3 { font-size:15px; color:#f48fb1; }
@@ -82,8 +85,8 @@
   <div class="wp-tabs">
     <button class="wp-tab active" id="wp-tab-create" onclick="switchWpTab('create')">Create Event</button>
     <button class="wp-tab" id="wp-tab-invite" onclick="switchWpTab('invite')">Invite Card</button>
-    <button class="wp-tab" id="wp-tab-guests" onclick="switchWpTab('guests')">Guest List</button>
-    <button class="wp-tab" id="wp-tab-myevents" onclick="switchWpTab('myevents')">My Events</button>
+    <button class="wp-tab" id="wp-tab-guests" onclick="switchWpTab('guests')" style="display:none;">Guest List</button>
+    <button class="wp-tab" id="wp-tab-myevents" onclick="switchWpTab('myevents')" style="display:none;">My Events</button>
   </div>
 
   <!-- ── CREATE ── -->

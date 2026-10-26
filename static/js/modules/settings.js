@@ -30,79 +30,23 @@ function toggleBgPanel() {
 }
 
 var BG_THEMES = [
-  {
-    id: 'default',
-    label: 'Default',
-    draw: function(ctx, w, h) {
-      ctx.fillStyle = '#0a1929';
-      ctx.fillRect(0, 0, w, h);
-    }
-  },
-  {
-    id: 'dark_green',
-    label: 'Forest',
-    draw: function(ctx, w, h) {
-      var g = ctx.createLinearGradient(0, 0, w, h);
-      g.addColorStop(0, '#0d2b0d'); g.addColorStop(1, '#0a1a0a');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    }
-  },
-  {
-    id: 'navy',
-    label: 'Night Sky',
-    draw: function(ctx, w, h) {
-      var g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#050a1a'); g.addColorStop(1, '#0a1535');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    }
-  },
-  {
-    id: 'charcoal',
-    label: 'Charcoal',
-    draw: function(ctx, w, h) {
-      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, 0, w, h);
-    }
-  },
-  {
-    id: 'warm_dark',
-    label: 'Warm Dark',
-    draw: function(ctx, w, h) {
-      var g = ctx.createLinearGradient(0, 0, w, h);
-      g.addColorStop(0, '#1a1208'); g.addColorStop(1, '#0f0b04');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    }
-  },
-  {
-    id: 'purple_dark',
-    label: 'Midnight',
-    draw: function(ctx, w, h) {
-      var g = ctx.createLinearGradient(0, 0, w, h);
-      g.addColorStop(0, '#120820'); g.addColorStop(1, '#0a0510');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    }
-  }
+  { id: 'default', label: 'Default', draw: function(ctx, w, h) { ctx.fillStyle = '#0a1929'; ctx.fillRect(0, 0, w, h); } },
+  { id: 'dark_green', label: 'Forest', draw: function(ctx, w, h) { var g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#0d2b0d'); g.addColorStop(1, '#0a1a0a'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); } },
+  { id: 'navy', label: 'Night Sky', draw: function(ctx, w, h) { var g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#050a1a'); g.addColorStop(1, '#0a1535'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); } },
+  { id: 'charcoal', label: 'Charcoal', draw: function(ctx, w, h) { ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, 0, w, h); } },
+  { id: 'warm_dark', label: 'Warm Dark', draw: function(ctx, w, h) { var g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#1a1208'); g.addColorStop(1, '#0f0b04'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); } },
+  { id: 'purple_dark', label: 'Midnight', draw: function(ctx, w, h) { var g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#120820'); g.addColorStop(1, '#0a0510'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); } }
 ];
 
 var _currentBgId = localStorage.getItem('asterix_bg') || 'default';
 
-// ── applyBackground to chat area ──────────────────────────────────
 function applyBackground(theme) {
   var area = document.getElementById('chat-area');
   var box  = document.getElementById('id_chat_item_container');
-  if (!box) {
-    console.warn('[settings] #id_chat_item_container not found');
-    return;
-  }
+  if (!box) return;
 
-  // Clear area background to avoid conflicts
-  if (area) {
-    area.style.background = 'none';
-    area.style.backgroundColor = '';
-    area.style.backgroundImage = '';
-    area.style.backgroundSize = '';
-  }
+  if (area) { area.style.background = 'none'; area.style.backgroundColor = ''; area.style.backgroundImage = ''; area.style.backgroundSize = ''; }
 
-  // Helper to apply background with !important
   function setBackground(el, value, size, repeat, color) {
     if (!el) return;
     el.style.setProperty('background-image', value, 'important');
@@ -111,73 +55,40 @@ function applyBackground(theme) {
     if (color) el.style.setProperty('background-color', color, 'important');
   }
 
-  // Custom image
   if (!theme) {
     var customUrl = localStorage.getItem('asterix_bg_custom');
-    if (customUrl) {
-      setBackground(box, 'url(' + customUrl + ')', 'cover', 'no-repeat', '#0a1929');
-      document.getElementById('current-bg-label').textContent = 'Custom image';
-    }
+    if (customUrl) { setBackground(box, 'url(' + customUrl + ')', 'cover', 'no-repeat', '#0a1929'); document.getElementById('current-bg-label').textContent = 'Custom image'; }
     return;
   }
 
-  // Default theme – use SVG pattern
   if (theme.id === 'default') {
     setBackground(box, DEFAULT_BG_PATTERN, '200px 200px', 'repeat', '#0a1929');
     document.getElementById('current-bg-label').textContent = 'Default pattern';
-    _currentBgId = 'default';
-    localStorage.setItem('asterix_bg', 'default');
-    document.querySelectorAll('.bg-thumb').forEach(function(t) {
-      t.classList.toggle('active', t.dataset.bgId === 'default');
-    });
+    _currentBgId = 'default'; localStorage.setItem('asterix_bg', 'default');
+    document.querySelectorAll('.bg-thumb').forEach(function(t) { t.classList.toggle('active', t.dataset.bgId === 'default'); });
     return;
   }
 
-  // Other themes: draw to canvas
-  var cvs = document.createElement('canvas');
-  cvs.width = 200;
-  cvs.height = 200;
-  var ctx = cvs.getContext('2d');
-  theme.draw(ctx, 200, 200);
-  var dataUrl = cvs.toDataURL();
-
+  var cvs = document.createElement('canvas'); cvs.width = 200; cvs.height = 200;
+  var ctx = cvs.getContext('2d'); theme.draw(ctx, 200, 200); var dataUrl = cvs.toDataURL();
   setBackground(box, 'url(' + dataUrl + ')', 'auto', 'repeat', '#0a1929');
-
   document.getElementById('current-bg-label').textContent = theme.label;
-  _currentBgId = theme.id;
-  localStorage.setItem('asterix_bg', theme.id);
-
-  document.querySelectorAll('.bg-thumb').forEach(function(t) {
-    t.classList.toggle('active', t.dataset.bgId === theme.id);
-  });
+  _currentBgId = theme.id; localStorage.setItem('asterix_bg', theme.id);
+  document.querySelectorAll('.bg-thumb').forEach(function(t) { t.classList.toggle('active', t.dataset.bgId === theme.id); });
 }
 
 function renderBgThumbs() {
   var grid = document.getElementById('bg-theme-grid');
-  if (!grid) {
-    console.warn('[settings] #bg-theme-grid not found');
-    return;
-  }
+  if (!grid) return;
   if (grid.children.length > 0) {
-    document.querySelectorAll('.bg-thumb').forEach(function(t) {
-      t.classList.toggle('active', t.dataset.bgId === _currentBgId);
-    });
+    document.querySelectorAll('.bg-thumb').forEach(function(t) { t.classList.toggle('active', t.dataset.bgId === _currentBgId); });
     return;
   }
-  console.log('[settings] Rendering background themes');
   BG_THEMES.forEach(function(theme) {
-    var thumb  = document.createElement('div');
-    thumb.className = 'bg-thumb' + (theme.id === _currentBgId ? ' active' : '');
-    thumb.dataset.bgId = theme.id;
-    var cvs = document.createElement('canvas');
-    var ctx = cvs.getContext('2d');
-    theme.draw(ctx, cvs.width || 160, cvs.height || 100);
-    var label = document.createElement('div');
-    label.className = 'bg-thumb-label';
-    label.textContent = theme.label;
-    thumb.appendChild(cvs);
-    thumb.appendChild(label);
-    thumb.onclick = function() { applyBackground(theme); };
+    var thumb = document.createElement('div'); thumb.className = 'bg-thumb' + (theme.id === _currentBgId ? ' active' : ''); thumb.dataset.bgId = theme.id;
+    var cvs = document.createElement('canvas'); var ctx = cvs.getContext('2d'); theme.draw(ctx, cvs.width || 160, cvs.height || 100);
+    var label = document.createElement('div'); label.className = 'bg-thumb-label'; label.textContent = theme.label;
+    thumb.appendChild(cvs); thumb.appendChild(label); thumb.onclick = function() { applyBackground(theme); };
     grid.appendChild(thumb);
   });
 }
@@ -188,59 +99,42 @@ document.getElementById('bg-custom-input').addEventListener('change', function()
   reader.onload = function(e) {
     localStorage.setItem('asterix_bg_custom', e.target.result);
     localStorage.setItem('asterix_bg', 'custom');
-    _currentBgId = 'custom';
-    applyBackground(null);
+    _currentBgId = 'custom'; applyBackground(null);
     document.querySelectorAll('.bg-thumb').forEach(function(t) { t.classList.remove('active'); });
   };
   reader.readAsDataURL(this.files[0]);
 });
 
-// ── Restore saved background on page load ────────────────────────
 (function restoreBg() {
-  if (_currentBgId === 'custom') {
-    applyBackground(null);
-  } else {
-    var saved = BG_THEMES.find(function(t) { return t.id === _currentBgId; });
-    if (saved) applyBackground(saved);
-    else applyBackground(BG_THEMES[0]);
-  }
+  if (_currentBgId === 'custom') { applyBackground(null); }
+  else { var saved = BG_THEMES.find(function(t) { return t.id === _currentBgId; }); if (saved) applyBackground(saved); else applyBackground(BG_THEMES[0]); }
 })();
 
-// ── Font Size ──────────────────────────────────────────────────────
-var _fontSize = parseInt(localStorage.getItem('asterix_font_size')) || 14;
+var _fontSize = parseInt(localStorage.getItem('asterix_font_size')) || 15;
 (function restoreFont() {
-  var box = document.getElementById('id_chat_item_container');
-  if (box) box.style.fontSize = _fontSize + 'px';
-  document.getElementById('font-size-label').textContent = 'Current (' + _fontSize + 'px)';
+  var shell = document.getElementById('app-shell'); if (shell) shell.style.fontSize = _fontSize + 'px';
+  var label = document.getElementById('font-size-label'); if (label) label.textContent = 'Current (' + _fontSize + 'px)';
 })();
 
 function changeFontSize(delta) {
   _fontSize = Math.max(11, Math.min(20, _fontSize + delta));
-  var box = document.getElementById('id_chat_item_container');
-  if (box) box.style.fontSize = _fontSize + 'px';
-  document.getElementById('font-size-label').textContent = 'Current (' + _fontSize + 'px)';
+  var shell = document.getElementById('app-shell'); if (shell) shell.style.fontSize = _fontSize + 'px';
+  var label = document.getElementById('font-size-label'); if (label) label.textContent = 'Current (' + _fontSize + 'px)';
   localStorage.setItem('asterix_font_size', _fontSize);
 }
 
-// ── Compact Messages ───────────────────────────────────────────────
 var compactTog = document.getElementById('tog-compact');
 if (compactTog) {
   compactTog.addEventListener('change', function() {
-    var box = document.getElementById('id_chat_item_container');
-    if (box) box.classList.toggle('compact', this.checked);
+    var box = document.getElementById('id_chat_item_container'); if (box) box.classList.toggle('compact', this.checked);
     localStorage.setItem('asterix_compact', this.checked ? '1' : '0');
   });
   (function restoreCompact() {
-    var c = localStorage.getItem('asterix_compact') === '1';
-    compactTog.checked = c;
-    if (c) {
-      var box = document.getElementById('id_chat_item_container');
-      if (box) box.classList.add('compact');
-    }
+    var c = localStorage.getItem('asterix_compact') === '1'; compactTog.checked = c;
+    if (c) { var box = document.getElementById('id_chat_item_container'); if (box) box.classList.add('compact'); }
   })();
 }
 
-// ── Ringtone Upload ────────────────────────────────────────────────
 document.getElementById('ringtone-input').addEventListener('change', function() {
   if (!this.files[0]) return;
   var reader = new FileReader();
@@ -255,101 +149,92 @@ document.getElementById('ringtone-input').addEventListener('change', function() 
 
 (function restoreRingtone() {
   var saved = localStorage.getItem('asterix_ringtone');
-  if (saved) {
-    document.getElementById('notif-snd').src = saved;
-    document.getElementById('ringtone-label').textContent = 'Custom';
-  }
+  if (saved) { document.getElementById('notif-snd').src = saved; document.getElementById('ringtone-label').textContent = 'Custom'; }
 })();
 
-// ── Message Notifications toggle ──────────────────────────────────
 var togNotifs = document.getElementById('tog-notifs');
 if (togNotifs) {
   var notifs = localStorage.getItem('asterix_notifs') !== 'false';
-  togNotifs.checked = notifs;
-  State.notificationsMuted = !notifs;
-
+  togNotifs.checked = notifs; State.notificationsMuted = !notifs;
   togNotifs.addEventListener('change', function() {
-    var enabled = this.checked;
-    State.notificationsMuted = !enabled;
+    var enabled = this.checked; State.notificationsMuted = !enabled;
     localStorage.setItem('asterix_notifs', String(enabled));
-    var textEl = document.getElementById('ua-sound-text');
-    if (textEl) textEl.textContent = enabled ? 'Mute Notifications' : 'Unmute Notifications';
-    var icon = document.querySelector('#ua-toggle-sound i');
-    if (icon) icon.className = enabled ? 'fas fa-bell' : 'fas fa-bell-slash';
-
-    // ── PWA push wiring (NEW — the only functional change in this file) ──
-    // Turning the toggle on requests OS notification permission and creates
-    // a push subscription (no-ops safely if PWABridge isn't loaded or VAPID
-    // isn't configured). Turning it off tears the subscription down so the
-    // backend stops sending — and stops retrying — pushes to this device.
-    if (window.PWABridge) {
-      if (enabled) {
-        window.PWABridge.enablePushNotifications();
-      } else {
-        window.PWABridge.unsubscribeFromPush();
-      }
-    }
-
+    var textEl = document.getElementById('ua-sound-text'); if (textEl) textEl.textContent = enabled ? 'Mute Notifications' : 'Unmute Notifications';
+    var icon = document.querySelector('#ua-toggle-sound i'); if (icon) icon.className = enabled ? 'fas fa-bell' : 'fas fa-bell-slash';
+    if (window.PWABridge) { if (enabled) window.PWABridge.enablePushNotifications(); else window.PWABridge.unsubscribeFromPush(); }
     toast('Notifications', enabled ? 'Notifications on' : 'Notifications off');
   });
 }
 
-// ── Read Receipts toggle ──────────────────────────────────────────
 var togRead = document.getElementById('tog-read-receipts');
 if (togRead) {
-  var readReceipts = localStorage.getItem('asterix_read_receipts') !== 'false';
-  togRead.checked = readReceipts;
-  togRead.addEventListener('change', function() {
-    localStorage.setItem('asterix_read_receipts', String(this.checked));
-    toast('Read Receipts', this.checked ? 'On' : 'Off');
-  });
+  var readReceipts = localStorage.getItem('asterix_read_receipts') !== 'false'; togRead.checked = readReceipts;
+  togRead.addEventListener('change', function() { localStorage.setItem('asterix_read_receipts', String(this.checked)); toast('Read Receipts', this.checked ? 'On' : 'Off'); });
 }
 
-// ── Hide Online Status toggle ─────────────────────────────────────
 var togHide = document.getElementById('tog-hide-online');
 if (togHide) {
-  var hideOnline = localStorage.getItem('asterix_hide_online') === 'true';
-  togHide.checked = hideOnline;
+  var hideOnline = localStorage.getItem('asterix_hide_online') === 'true'; togHide.checked = hideOnline;
   togHide.addEventListener('change', function() {
-    var hide = this.checked;
-    localStorage.setItem('asterix_hide_online', String(hide));
-    var event = new CustomEvent('settingsChanged', {
-      detail: { setting: 'hide_online', value: hide }
-    });
-    document.dispatchEvent(event);
+    var hide = this.checked; localStorage.setItem('asterix_hide_online', String(hide));
+    document.dispatchEvent(new CustomEvent('settingsChanged', { detail: { setting: 'hide_online', value: hide } }));
     toast('Privacy', hide ? 'Online status hidden' : 'Online status visible');
   });
 }
 
-// ── Settings modal ────────────────────────────────────────────────
 var settingsOverlay = document.getElementById('settings-modal-overlay');
 var settingsCloseBtn = document.querySelector('#settings-modal .settings-close');
-
-function openSettings() {
-  if (settingsOverlay) settingsOverlay.classList.add('open');
-}
-
-function closeSettings() {
-  if (settingsOverlay) settingsOverlay.classList.remove('open');
-}
-
-if (settingsCloseBtn) {
-  settingsCloseBtn.addEventListener('click', closeSettings);
-}
-if (settingsOverlay) {
-  settingsOverlay.addEventListener('click', function(e) {
-    if (e.target === this) closeSettings();
-  });
-}
+function openSettings() { if (settingsOverlay) settingsOverlay.classList.add('open'); }
+function closeSettings() { if (settingsOverlay) settingsOverlay.classList.remove('open'); }
+if (settingsCloseBtn) { settingsCloseBtn.addEventListener('click', closeSettings); }
+if (settingsOverlay) { settingsOverlay.addEventListener('click', function(e) { if (e.target === this) closeSettings(); }); }
 
 window.Asterix = window.Asterix || {};
-window.Asterix.settings = {
-  open: openSettings,
-  close: closeSettings,
-  toggleBgPanel: toggleBgPanel,
-  changeFontSize: changeFontSize,
-  applyBackground: applyBackground,
-  renderBgThumbs: renderBgThumbs,
+window.Asterix.settings = { open: openSettings, close: closeSettings, toggleBgPanel: toggleBgPanel, changeFontSize: changeFontSize, applyBackground: applyBackground, renderBgThumbs: renderBgThumbs };
+
+// 👇 GLOBAL FUNCTION TO TRIGGER THE OEM BATTERY FIX 👇
+window.fixBackgroundNotifications = function() {
+  if (window.AndroidBridge && typeof window.AndroidBridge.requestIgnoreBatteryOptimizations === 'function') {
+
+    // 1. Ask to ignore standard battery optimization
+    window.AndroidBridge.requestIgnoreBatteryOptimizations();
+
+    // 2. Give it a second, then open the OEM-specific auto-start settings
+    setTimeout(function() {
+      if (window.Swal) {
+        Swal.fire({
+          title: 'Allow Auto-Start',
+          text: 'On the next screen, find Fizzme and allow it to auto-start or run in the background. This fixes missing notifications on Xiaomi, Huawei, and Samsung.',
+          icon: 'info',
+          confirmButtonText: 'Open Settings',
+          confirmButtonColor: '#128c7e',
+          showCancelButton: true,
+          cancelButtonText: 'Cancel'
+        }).then(function(result) {
+          if (result.isConfirmed) {
+            window.AndroidBridge.openOemSettings();
+          }
+        });
+      } else {
+        if (confirm("Allow Fizzme to auto-start in the background to receive notifications?")) {
+          window.AndroidBridge.openOemSettings();
+        }
+      }
+    }, 1000);
+
+  } else {
+    // PWA fallback
+    if (window.Swal) {
+      Swal.fire({
+        title: 'PWA Notifications',
+        text: 'To ensure background notifications on the web, make sure you have installed Fizzme to your Home Screen and allowed notifications in your browser settings.',
+        icon: 'info',
+        confirmButtonColor: '#128c7e'
+      });
+    } else {
+      alert('To ensure background notifications, install Fizzme to your home screen.');
+    }
+  }
 };
 
-console.log('[Asterix] Settings module loaded (background fully fixed, push wiring added)');
+console.log('[Asterix] Settings module loaded (background fully fixed, OEM battery fix added)');

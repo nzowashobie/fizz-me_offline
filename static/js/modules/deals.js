@@ -535,6 +535,20 @@
 
     // ── Terminal / closed state ───────────────────────────────────
     if (isTerminal) {
+          if (deal.state === 'completed') {
+            var tbar = document.createElement('div');
+            tbar.style.cssText = 'display:flex;gap:8px;padding:8px 12px 10px;';
+            var tbtn = document.createElement('a');
+            tbtn.href = '/deals/' + deal.id + '/delivery/';
+            tbtn.textContent = (myName === _displayName(deal.seller)) ? '💳 Review payment & accept' : '🚚 Track delivery';
+            tbtn.style.cssText = 'flex:1;text-align:center;padding:10px;border-radius:20px;background:#25d366;color:#000;font-weight:700;text-decoration:none;';
+            var rbtn = document.createElement('a');
+            rbtn.href = '/deals/' + deal.id + '/receipt/';
+            rbtn.textContent = '🧾 View receipt';
+            rbtn.style.cssText = 'flex:1;text-align:center;padding:10px;border-radius:20px;background:#e6a817;color:#000;font-weight:700;text-decoration:none;';
+            tbar.appendChild(tbtn); tbar.appendChild(rbtn);
+            card.appendChild(tbar);
+          }
       var closedBanner = document.createElement('div');
       closedBanner.className = 'fz-txn-closed ' + deal.state;
       closedBanner.textContent = deal.state === 'completed'

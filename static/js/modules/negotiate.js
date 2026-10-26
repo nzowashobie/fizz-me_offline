@@ -1,17 +1,5 @@
 // ============================================================
 // negotiate.js — Fizzme in-chat Zambian bargaining engine
-//
-// FIXES
-// ─────
-//   ENQUIRY  The buyer's original "Hi, I'm interested…" message
-//            is now fetched from the message thread and rendered
-//            on the offer card as "📩 Original enquiry".
-//            Preference order:
-//              1. msg.reply_text (backend-stored copy — survives trims)
-//              2. Lookup from window._currentMessages
-//   NOTE     offer.note rendered right below the meta grid.
-//   MEDIA    All Cloudinary thumbnails proxied (no Opaque block).
-//   BUY      Strict buyer-only auto-checkout.
 // ============================================================
 
 (function () {
@@ -61,10 +49,10 @@
     },
     completeDeal: function (dealId, paymentMethod, paymentAccount, paymentRef) {
       return _apiPost('/api/deals/complete/', {
-        deal_id:         dealId,
-        payment_method:  paymentMethod  || '',
-        payment_account: paymentAccount || '',
-        payment_ref:     paymentRef     || '',
+        deal_id:           dealId,
+        payment_method:    paymentMethod  || '',
+        payment_account:   paymentAccount || '',
+        payment_reference: paymentRef     || '', // 👈 FIXED: Matches backend
       });
     },
     cancelDeal: function (dealId) {
@@ -231,17 +219,12 @@
   function _isServerGeneratedMessage(text) {
     if (!text) return false;
     var patterns = [
-      /Offer:\s*K[\d,]/, /Counter offer:\s*K[\d,]/,
-      /Deal agreed at K[\d,]/, /Purchase request — K[\d,]/,
-      /Payment confirmed — K[\d,]/,
+      /Offer:\s*K[\d,]/, /Counter offer:\s*K[\d,]/, /Deal agreed at K[\d,]/, /Purchase request — K[\d,]/, /Payment confirmed — K[\d,]/, /Your offer was K[\d,]/,
     ];
     for (var i = 0; i < patterns.length; i++) if (patterns[i].test(text)) return true;
     return false;
   }
 
-  // ── Enquiry lookup (fallback path) ─────────────────────────
-  // The primary path is msg.reply_text (backend-stored). This
-  // fallback scans the live thread if reply_text is empty.
   function _findEnquiryTextForOffer(msg) {
     var all = window._currentMessages || [];
     if (!all.length) return '';
@@ -266,14 +249,12 @@
     return '';
   }
 
-  // Unified enquiry resolver — tries msg.reply_text first.
   function _resolveEnquiry(msg) {
     var rt = (msg.reply_text || '').trim();
     if (rt && rt.length > 5 && !_isServerGeneratedMessage(rt)) return rt;
     return _findEnquiryTextForOffer(msg);
   }
 
-  // ── Buyer-only checkout ────────────────────────────────────
   function _routeBuyerToCheckout(res, sellerUsername) {
     if (!res || !res.deal_id) return;
     if (!(window.Asterix && window.Asterix.checkout)) return;
@@ -310,7 +291,6 @@
     }, 1200);
   }
 
-  // ── Transaction cards ──────────────────────────────────────
   function buildTransactionCard(msg) {
     try {
       var myName = me();
@@ -367,7 +347,6 @@
     if (rs && rs.collection_point) _addMeta(meta, 'Collection', rs.collection_point);
     body.appendChild(meta);
 
-    // ── NOTE ──
     var noteText = (offer.note || '').trim();
     if (noteText) {
       var noteEl = document.createElement('div');
@@ -376,7 +355,6 @@
       body.appendChild(noteEl);
     }
 
-    // ── ORIGINAL ENQUIRY (buyer's status message) ──
     var enquiryText = _resolveEnquiry(msg);
     if (enquiryText) {
       var eqWrap = document.createElement('div');
@@ -392,7 +370,6 @@
       body.appendChild(eqWrap);
     }
 
-    // ── THIS MESSAGE'S OWN TEXT (if not server-generated) ──
     var rawMsg = (msg.message || '').trim();
     if (rawMsg && !_isServerGeneratedMessage(rawMsg)) {
       var msgTextEl = document.createElement('div');
@@ -521,6 +498,20 @@
     card.appendChild(body);
 
     if (isTerminal) {
+      if (deal.state === 'completed') {
+        var tbar = document.createElement('div');
+        tbar.style.cssText = 'display:flex;gap:8px;padding:8px 12px 10px;';
+        var tbtn = document.createElement('a');
+        tbtn.href = '/deals/' + deal.id + '/delivery/';
+        tbtn.textContent = (myName === _displayName(deal.seller)) ? '💳 Review payment & accept' : '🚚 Track delivery';
+        tbtn.style.cssText = 'flex:1;text-align:center;padding:10px;border-radius:20px;background:#25d366;color:#000;font-weight:700;text-decoration:none;';
+        var rbtn = document.createElement('a');
+        rbtn.href = '/deals/' + deal.id + '/receipt/';
+        rbtn.textContent = '🧾 View receipt';
+        rbtn.style.cssText = 'flex:1;text-align:center;padding:10px;border-radius:20px;background:#e6a817;color:#000;font-weight:700;text-decoration:none;';
+        tbar.appendChild(tbtn); tbar.appendChild(rbtn);
+        card.appendChild(tbar);
+      }
       var cb = document.createElement('div');
       cb.className = 'fz-txn-closed ' + deal.state;
       cb.textContent = deal.state === 'completed'
@@ -585,7 +576,6 @@
       }
     }
 
-    // Seller shares how the buyer should pay (confirmed state, seller side)
     if (deal.state === 'confirmed' && isSeller) {
       var setupBtn = _txnBtn(
         deal.payment_method ? '💳 Edit payment details' : '💳 Add payment details',
@@ -693,7 +683,6 @@
     return offer.proposed_by === myName ? 'Your Offer' : 'Incoming Offer';
   }
 
-  // ── Bargaining sheet ──────────────────────────────────────
   function openBargainSheet(listingData, offerData, selectedMedia, mode, historyChain) {
     _closeSheet();
     var overlay = document.createElement('div');
@@ -904,7 +893,6 @@
   function _disableAll(row) { row.querySelectorAll('button').forEach(function (b) { b.disabled = true; }); }
   function _enableAll(row) { row.querySelectorAll('button').forEach(function (b) { b.disabled = false; }); }
 
-  // ── Interest sheet ─────────────────────────────────────────
   function openInterestSheet(status, selectedMedia) {
     if (window.Asterix && window.Asterix.status) window.Asterix.status.pauseViewer();
     var overlay = document.getElementById('fz-interest-overlay');
@@ -1069,5 +1057,5 @@
   window.openInterestSheet = openInterestSheet;
   window.closeInterestSheet = _closeInterestSheet;
 
-  console.log('[Fizzme] negotiate.js — enquiry via reply_text fallback + proxied media');
+  console.log('[Fizzme] negotiate.js — XHR fix for completeDeal payload');
 })();

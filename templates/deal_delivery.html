@@ -1,0 +1,289 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Collection · Deal #{{ deal.pk }} · Fizzme</title>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<style>
+  body{margin:0;background:#0d1412;color:#e8f1ee;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .page{max-width:440px;margin:0 auto;padding:16px}
+  .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .head a{color:#25d366;text-decoration:none;font-size:14px}
+  .head span{font-size:13px;color:#8aa39b}
+  .card{background:#16201d;border-radius:16px;padding:20px}
+  .item{font-size:13px;color:#8aa39b;margin-bottom:14px}
+  .step{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+  .dot{width:26px;height:26px;border-radius:50%;border:2px solid #2b3a35;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+  .dot.done{background:#25d366;border-color:#25d366;color:#000}
+  .dot.now{border-color:#e6a817}
+  .label{font-size:14px}
+  .label.dim{color:#8aa39b}
+  .msg{font-size:15px;line-height:1.5;margin:16px 0 4px}
+  .pay{background:rgba(37,211,102,.07);border:1px solid rgba(37,211,102,.25);border-radius:14px;padding:12px 14px;margin-top:12px}
+  .pay-row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .pay-row span:first-child{color:#8aa39b}
+  .hint{font-size:12px;color:#8aa39b;margin-top:8px;line-height:1.5}
+  .btn{display:block;width:100%;box-sizing:border-box;padding:13px;border:0;border-radius:24px;font-weight:700;font-size:15px;cursor:pointer;text-align:center;text-decoration:none;margin-top:12px;color:#e8f1ee}
+  .go{background:linear-gradient(135deg,#25d366,#128c7e);color:#fff}
+  .gold{background:#e6a817;color:#000}
+  .ghost{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .link{background:none;border:0;color:#8aa39b;font-size:12px;text-decoration:underline;cursor:pointer;margin-top:14px;padding:0}
+  .stars{display:flex;justify-content:center;gap:8px;margin-top:8px}
+  .stars button{background:none;border:0;font-size:28px;color:#e6a817;cursor:pointer}
+  .err{color:#f15c6d;font-size:14px}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <a href="javascript:history.back()">← Back to chat</a>
+    <span>Deal #{{ deal.pk }}</span>
+  </div>
+  <div class="card">
+    <div class="item" id="item">Loading…</div>
+    <div id="steps"></div>
+    <div id="msg" class="msg"></div>
+    <div id="extra"></div>
+    <div id="actions"></div>
+  </div>
+</div>
+<script>
+(function () {
+  var DEAL_ID = {{ deal.pk }};
+  var METHODS = { airtel_money: 'Airtel Money', mtn_money: 'MTN MoMo', zamtel_kwacha: 'Zamtel Kwacha', bank_transfer: 'Bank transfer', cash: 'Cash' };
+  var STEP_LABELS = {
+    order_placed: 'Payment sent',
+    seller_confirmed: 'Ready for collection',
+    payment_released: 'Collected and closed'
+  };
+  var timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function csrf() {
+    var m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise(function (_, rej) {
+      setTimeout(function () { rej(new Error('The server did not respond. Check that runserver is running.')); }, ms);
+    })]);
+  }
+  function getStatus() {
+    return withTimeout(fetch('/api/delivery/status/?deal_id=' + DEAL_ID, { credentials: 'same-origin' })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok || d.error) throw new Error(d.error || ('Request failed (' + r.status + ')'));
+          return d;
+        });
+      }), 10000);
+  }
+  function post(url, body) {
+    return withTimeout(fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok || d.error) throw new Error(d.error || ('Request failed (' + r.status + ')'));
+        return d;
+      });
+    }), 15000);
+  }
+  function fail(msg) {
+    if (window.Swal) Swal.fire({ icon: 'error', title: 'Could not complete that', text: msg, confirmButtonColor: '#128c7e' });
+    else window.alert(msg);
+  }
+  function done(msg) {
+    if (window.Swal) Swal.fire({ toast: true, position: 'top', icon: 'success', title: msg, timer: 2200, showConfirmButton: false });
+    load();
+  }
+  function ask(title, text, ok) {
+    if (!window.Swal) return Promise.resolve(window.confirm(text));
+    return Swal.fire({ title: title, text: text, icon: 'question', showCancelButton: true,
+                       confirmButtonText: ok, confirmButtonColor: '#128c7e', cancelButtonText: 'Not yet' })
+      .then(function (r) { return r.isConfirmed; });
+  }
+  function reason() {
+    if (!window.Swal) return Promise.resolve((window.prompt('Briefly describe the problem:') || '').trim());
+    return Swal.fire({ title: 'Report a problem', input: 'textarea', inputLabel: 'Briefly describe the problem',
+                       showCancelButton: true, confirmButtonText: 'Send', confirmButtonColor: '#f15c6d',
+                       inputAttributes: { maxlength: 500 } })
+      .then(function (r) { return r.isConfirmed ? (r.value || '').trim() : ''; });
+  }
+  function fmtLeft(ms) {
+    var h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    return h + ' h ' + m + ' min';
+  }
+
+  function payBlock(d) {
+    var html = '<div class="pay">' +
+      '<div class="pay-row"><span>Amount</span><b>K ' + esc(d.amount) + '</b></div>' +
+      '<div class="pay-row"><span>Buyer</span><span>' + esc(d.buyer) + '</span></div>' +
+      '<div class="pay-row"><span>Paid via</span><span>' + esc(METHODS[d.payment_method] || d.payment_method || '—') + '</span></div>';
+    if (d.payment_reference) {
+      html += '<div class="pay-row"><span>Reference</span><b>' + esc(d.payment_reference) + '</b></div>';
+    }
+    if (d.has_proof) {
+      html += '<a class="btn ghost" href="' + esc(d.proof_url) + '" target="_blank" rel="noopener">🧾 View payment screenshot</a>';
+    } else if (!d.payment_reference) {
+      html += '<div class="hint">No proof yet. The buyer has not sent a screenshot or reference.</div>';
+    }
+    return html + '</div>';
+  }
+
+  function render(d) {
+    var role = d.my_role, st = d.stage, closed = st === 'payment_released';
+    var stages = d.stages || ['order_placed', 'seller_confirmed', 'payment_released'];
+    var ci = stages.indexOf(st);
+
+    $('item').textContent = 'Deal #' + DEAL_ID + ' · Collection · K ' + (d.amount || '');
+
+    var steps = '';
+    stages.forEach(function (s, i) {
+      var isDone = i <= ci, isNow = i === ci + 1;
+      steps += '<div class="step"><div class="dot ' + (isDone ? 'done' : isNow ? 'now' : '') + '">' +
+        (isDone ? '✓' : '') + '</div><div class="label ' + (isDone ? '' : 'dim') + '">' +
+        esc(STEP_LABELS[s] || s) + '</div></div>';
+    });
+    $('steps').innerHTML = steps;
+
+    var msg = '', extra = '', actions = '';
+    if (st === 'disputed') {
+      msg = 'A problem has been reported. Both of you can see it in chat.';
+    } else if (closed) {
+      msg = 'Collected and closed. Thank you for trading on Fizzme.';
+      
+      if (role === 'buyer') {
+        actions += '<div class="hint" style="text-align:center;margin-top:16px;">How was the seller?</div>' +
+          '<div class="stars">' + [1, 2, 3, 4, 5].map(function (n) {
+            return '<button data-score="' + n + '">★</button>';
+          }).join('') + '</div>';
+      }
+    } else if (st === 'order_placed') {
+      extra = payBlock(d);
+      if (role === 'seller') {
+        var ready = d.has_proof || !!d.payment_reference;
+        msg = ready
+          ? 'Check your MoMo or bank for K ' + d.amount + ' from ' + d.buyer + '. Only mark ready once the money has arrived.'
+          : 'Waiting for the buyer to send a payment screenshot or reference.';
+        actions += '<button class="btn go" data-act="seller_confirmed"' + (ready ? '' : ' disabled') + '>✅ Money received · mark ready</button>';
+      } else {
+        msg = 'Waiting for ' + d.seller + ' to confirm the payment and get your item ready.';
+      }
+    } else if (st === 'seller_confirmed') {
+      extra = payBlock(d);
+      if (role === 'buyer') {
+        msg = 'Your item is ready. Collect it, then confirm here.';
+        actions += '<button class="btn go" data-act="payment_released">📦 I have collected the item</button>';
+        actions += '<div class="hint">Only confirm once the item is in your hand. Confirming releases payment to the seller.</div>';
+      } else {
+        msg = 'Ready for collection. Waiting for the buyer to collect and confirm.';
+        if (d.seller_can_close_at) {
+          actions += '<div class="hint" id="close-timer"></div>' +
+            '<button class="btn ghost" id="close-btn" data-act="payment_released" disabled>Close deal (buyer has not confirmed)</button>';
+        }
+      }
+      actions += '<button class="link" data-report="1">Report a problem</button>';
+    }
+
+    $('msg').className = 'msg';
+    $('msg').textContent = msg;
+    $('extra').innerHTML = extra;
+    $('actions').innerHTML = actions;
+    wire(d);
+
+    if (d.seller_can_close_at && st === 'seller_confirmed' && role === 'seller') {
+      startCloseTimer(d.seller_can_close_at);
+    }
+  }
+
+  function startCloseTimer(iso) {
+    var end = new Date(iso).getTime();
+    clearInterval(timer);
+    function tick() {
+      var btn = $('close-btn'), label = $('close-timer');
+      if (!btn) { clearInterval(timer); return; }
+      var left = end - Date.now();
+      if (left <= 0) {
+        btn.disabled = false;
+        label.textContent = 'You can close this deal now, because the buyer has not confirmed.';
+        clearInterval(timer);
+      } else {
+        btn.disabled = true;
+        label.textContent = 'You can close this deal in ' + fmtLeft(left) + ' if the buyer has not confirmed.';
+      }
+    }
+    tick();
+    timer = setInterval(tick, 30000);
+  }
+
+  function wire(d) {
+    var root = $('actions');
+    root.querySelectorAll('[data-act]').forEach(function (b) {
+      b.onclick = function () {
+        if (b.disabled) return;
+        var stage = b.dataset.act;
+        var go = function () {
+          b.disabled = true;
+          post('/api/delivery/advance/', { deal_id: DEAL_ID, stage: stage })
+            .then(function () {
+              done(stage === 'payment_released' ? 'Closed. Payment released.' : 'Marked ready');
+            })
+            .catch(function (e) { b.disabled = false; fail(e.message); });
+        };
+        if (stage === 'payment_released') {
+          var text = d.my_role === 'buyer'
+            ? 'Only confirm once you have the item in hand. This releases payment to the seller.'
+            : 'Use this only if the buyer has collected the item but has not confirmed. This releases payment.';
+          ask('Close this deal?', text, 'Yes, close it').then(function (ok) { if (ok) go(); });
+        } else {
+          go();
+        }
+      };
+    });
+    root.querySelectorAll('[data-score]').forEach(function (b) {
+      b.onclick = function () {
+        post('/api/ratings/submit/', { deal_id: DEAL_ID, score: parseInt(b.dataset.score, 10), note: '' })
+          .then(function () { done('Thanks for rating'); })
+          .catch(function (e) { fail(e.message); });
+      };
+    });
+    var rep = root.querySelector('[data-report]');
+    if (rep) {
+      rep.onclick = function () {
+        reason().then(function (text) {
+          if (!text) return;
+          post('/api/delivery/advance/', { deal_id: DEAL_ID, stage: 'disputed', notes: text })
+            .then(function () { done('Problem reported'); })
+            .catch(function (e) { fail(e.message); });
+        });
+      };
+    }
+  }
+
+  function load() {
+    $('msg').className = 'msg';
+    $('msg').textContent = 'Loading…';
+    getStatus().then(render).catch(function (e) {
+      clearInterval(timer);
+      $('msg').className = 'msg err';
+      $('msg').textContent = e.message;
+      $('steps').innerHTML = '';
+      $('extra').innerHTML = '';
+      $('actions').innerHTML = '<button class="btn go" id="retry">Try again</button>';
+      $('retry').onclick = load;
+    });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

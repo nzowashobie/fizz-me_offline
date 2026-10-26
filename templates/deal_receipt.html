@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Receipt {{ receipt_no }} · Asterix</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Receipt {{ receipt_no }} · Fizzme</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f6f5;margin:0;padding:24px;color:#111}
   .card{max-width:520px;margin:0 auto;background:#fff;border-radius:14px;padding:28px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
@@ -21,9 +24,12 @@
 </head>
 <body>
 <div class="card">
-  <h1>Asterix Receipt</h1>
+  <div style="margin-bottom: 20px;">
+    <a href="javascript:history.back()" style="color: #128c7e; text-decoration: none; font-weight: bold; font-size: 14px;">← Back to chat</a>
+  </div>
+  <h1>Fizzme Receipt</h1>
   <div class="muted">{{ receipt_no }} · Issued {{ issued|date:"d M Y, H:i" }}</div>
-  <p><span class="status {% if not closed %}open{% endif %}">{% if closed %}Completed · Delivery closed{% else %}Paid · Awaiting delivery close{% endif %}</span></p>
+  <p><span class="status {% if not closed %}open{% endif %}">{% if closed %}Completed · Delivered{% else %}Paid · Awaiting delivery{% endif %}</span></p>
 
   <div class="row"><span>Item</span><span>{{ deal.status.caption|default:"Listing" }}</span></div>
   <div class="row"><span>Seller</span><span>{{ deal.seller.username }}</span></div>

@@ -63,7 +63,9 @@ class Profile(models.Model):
         try:
             pp = self.profile_picture
             pid = getattr(pp, 'public_id', None) or getattr(pp, 'name', None)
-            if pid:
+
+            # 👇 FIX: Ignore static paths or full URLs stuck in the DB to prevent Cloudinary 404s
+            if pid and not str(pid).startswith(('/static/', 'static/', 'http://', 'https://')):
                 url = pp.url
                 if url and url.startswith('http://'):
                     url = url.replace('http://', 'https://', 1)
@@ -186,6 +188,7 @@ class UserStatus(models.Model):
     product_category  = models.CharField(max_length=20, choices=PRODUCT_CATEGORY_CHOICES, blank=True, db_index=True)
     custom_tag        = models.CharField(max_length=50, blank=True)
     collection_point  = models.CharField(max_length=255, blank=True)
+    quantity          = models.PositiveIntegerField(default=1, help_text="Number of items in stock")
 
     # ── Extension & Bump support (NEW) ──────────────────────────────────
     expires_at = models.DateTimeField(
@@ -201,6 +204,19 @@ class UserStatus(models.Model):
     def __str__(self):
         cat = self.category.name if self.category else 'No Category'
         return f"{self.user.username} — {cat}"
+
+
+class StatusView(models.Model):
+    status = models.ForeignKey(UserStatus, on_delete=models.CASCADE, related_name='views')
+    viewer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    viewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('status', 'viewer')
+        ordering = ['-viewed_at']
+
+    def __str__(self):
+        return f"{self.viewer.username} viewed {self.status.id}"
 
 
 class AdCampaign(models.Model):
@@ -277,6 +293,8 @@ class Deal(models.Model):
     payment_account   = models.CharField(max_length=100, blank=True)
     payment_reference = models.CharField(max_length=100, blank=True)
     payment_instructions = models.TextField(blank=True, default='')
+    payment_proof = models.CharField(max_length=255, blank=True, default='')
+    payment_proof_at = models.DateTimeField(null=True, blank=True)
 
     state = models.CharField(max_length=25, choices=DEAL_STATE_CHOICES, default='pending_confirmation')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -556,3 +574,15 @@ class SharedVideo(models.Model):
 
     class Meta:
         ordering = ["-id"]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FCM — Android push (companion to the existing PushSubscription / VAPID block)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class FCMDevice(models.Model):
+    user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='fcm_devices')
+    token      = models.CharField(max_length=512, unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user} · {self.token[:12]}…'

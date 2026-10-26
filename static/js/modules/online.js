@@ -1,89 +1,79 @@
 // ============================================================
-// online.js — Online status ping
+// online.js — Online status ping + sidebar green dots
 // ============================================================
 
 (function() {
   'use strict';
+  if (window.__fzOnlineLoaded) return;
+  window.__fzOnlineLoaded = true;
 
-  var PING_INTERVAL = 30000; // 30 seconds
+  var PING_INTERVAL = 25000;
+  var DOTS_INTERVAL = 10000;
   var pingTimer = null;
-
-  function sendPing() {
-    // Check if we should hide online status
-    var hideOnline = localStorage.getItem('asterix_hide_online') === 'true';
-    if (hideOnline) return;
-
-    fetch('/api/update-online/', {
-      method: 'POST',
-      headers: {
-        'X-CSRFToken': getCsrf()
-      }
-    }).catch(function() { /* ignore errors */ });
-  }
+  var dotsTimer = null;
 
   function getCsrf() {
     var cookie = document.cookie.split('; ').find(function(r) { return r.startsWith('csrftoken='); });
-    return cookie ? cookie.split('=')[1] : (window.ASTERIX && window.ASTERIX.CSRF) || '';
+    return cookie ? decodeURIComponent(cookie.split('=')[1]) : (window.ASTERIX && window.ASTERIX.CSRF) || '';
+  }
+
+  function sendPing() {
+    if (localStorage.getItem('asterix_hide_online') === 'true') return;
+    fetch('/api/update-online/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': getCsrf() }
+    }).catch(function() {});
   }
 
   function startPing() {
     if (pingTimer) clearInterval(pingTimer);
-    // Send immediately
     sendPing();
     pingTimer = setInterval(sendPing, PING_INTERVAL);
   }
 
   function stopPing() {
-    if (pingTimer) {
-      clearInterval(pingTimer);
-      pingTimer = null;
-    }
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
   }
 
-  // ── Events ─────────────────────────────────────────────────────
+  function fetchOnlineUsers() {
+    if (document.hidden) return;
+    fetch('/api/users/online/', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        // Sidebar dots are disabled. Online status will only show in the chat header.
+        document.querySelectorAll('.online-dot').forEach(function(el) { el.style.display = 'none'; });
+      }).catch(function() {});
+  }
 
-  // Start pinging when page loads
-  document.addEventListener('DOMContentLoaded', startPing);
+  function startDots() {
+    if (dotsTimer) clearInterval(dotsTimer);
+    fetchOnlineUsers();
+    dotsTimer = setInterval(fetchOnlineUsers, DOTS_INTERVAL);
+  }
 
-  // Also send ping on visibility change (tab becomes active)
+  function boot() { startPing(); startDots(); }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
   document.addEventListener('visibilitychange', function() {
     if (!document.hidden) {
-      sendPing();
-      // Restart interval to avoid long gaps
-      if (pingTimer) {
-        clearInterval(pingTimer);
-        pingTimer = setInterval(sendPing, PING_INTERVAL);
-      }
+      startPing();
+      fetchOnlineUsers();
     }
   });
 
-  // Also send ping on user activity (click, keypress) – optional
-  document.addEventListener('click', function() {
-    // Debounce: don't flood
-    if (pingTimer) {
-      clearInterval(pingTimer);
-      pingTimer = setInterval(sendPing, PING_INTERVAL);
-    }
-    sendPing();
-  });
-
-  // ── Listen for setting changes ────────────────────────────────
-  // When the "Hide Online Status" toggle changes, restart pinging
   document.addEventListener('settingsChanged', function(e) {
     if (e.detail && e.detail.setting === 'hide_online') {
-      // Stop and restart so the new setting takes effect
       stopPing();
       startPing();
     }
   });
 
-  // Expose for manual restart if needed
   window.Asterix = window.Asterix || {};
-  window.Asterix.online = {
-    startPing: startPing,
-    stopPing: stopPing,
-    sendPing: sendPing
-  };
-
-  console.log('[Asterix] Online status pinger loaded');
+  window.Asterix.online = { startPing: startPing, stopPing: stopPing, sendPing: sendPing, refreshDots: fetchOnlineUsers };
 })();

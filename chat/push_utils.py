@@ -1,16 +1,10 @@
 """
 push_utils.py — Web Push sending helper.
-
-Kept isolated from views_messages.py on purpose: send_push_notification()
-NEVER raises — any failure (expired subscription, network error, bad keys)
-is caught and logged, so a push failure can never break the actual message
-send it's attached to. Expired/gone subscriptions (410/404 from the push
-service) are auto-deleted so they stop being retried forever.
+NEVER raises — any failure is caught and logged so it can't break message sending.
 """
 
 import json
 import logging
-
 from django.conf import settings
 from pywebpush import webpush, WebPushException
 
@@ -30,12 +24,7 @@ def _vapid_private_key_pem():
 
 
 def send_push_notification(user, title, body, url='/', tag=None):
-    """
-    Sends a push notification to every subscribed device for `user`.
-    Safe to call from anywhere (e.g. after saving a Message) — it will
-    never raise, and does nothing if the user has no subscriptions or
-    VAPID isn't configured yet.
-    """
+    """Sends a push notification to every subscribed device for `user`."""
     from .models import PushSubscription  # local import avoids circulars
 
     private_key = _vapid_private_key_pem()
@@ -69,11 +58,13 @@ def send_push_notification(user, title, body, url='/', tag=None):
                 data=payload,
                 vapid_private_key=private_key,
                 vapid_claims=dict(vapid_claims),
+                # 👇 Forces Android to wake up even if PWA is closed / Doze Mode
+                headers={'Urgency': 'high'},
+                ttl=86400
             )
         except WebPushException as e:
             status = getattr(e.response, 'status_code', None)
             if status in (404, 410):
-                # Subscription is gone (browser unsubscribed / uninstalled) — clean it up.
                 sub.delete()
                 logger.info(f"Removed stale push subscription for {user.username} (status {status}).")
             else:

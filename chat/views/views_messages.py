@@ -3,12 +3,6 @@ views_messages.py — All message endpoints:
   get_messages, send_message_http, poll_messages,
   mark_messages_as_read, get_unread_message_count,
   get_conversation_previews, delete_message, clear_chat.
-
-FIX: _serialize_message now embeds 'offer' and 'deal' nested dicts
-     so that negotiate.js buildTransactionCard() can render the
-     Accept / Counter / Decline card instead of falling through to
-     plain text.  select_related('offer', 'deal') is already present
-     in every queryset — this just exposes the data to the frontend.
 """
 
 import json
@@ -26,26 +20,22 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from ..models import Attachment, CustomUser, Message, UserStatus
+from ..models import Attachment, CustomUser, Message, UserStatus, Deal, Offer
 from .helpers import (
     _utc_iso, _get_file_url, _get_cloudinary_filename,
-    _fetch_file_bytes,
+    _fetch_file_bytes, _profile_pic,
 )
 from ..push_utils import send_push_notification
+from ..fcm import send_fcm_to_user
 
 User    = get_user_model()
 logger  = logging.getLogger(__name__)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# SERIALISATION HELPERS (NEW)
+# SERIALISATION HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _offer_history(offer):
-    """
-    Every offer in this bargaining chain, oldest first, each with its own note.
-    Walks parent_offer links back to the first offer.
-    """
     chain = []
     seen = set()
     cur = offer
@@ -66,12 +56,7 @@ def _offer_history(offer):
         for o in chain
     ]
 
-
 def _serialize_offer_safe(msg):
-    """
-    Nested offer dict for the card builders, or None.
-    'history' is the whole bargaining chain, including this offer.
-    """
     try:
         offer = msg.offer
         if offer is None:
@@ -89,12 +74,7 @@ def _serialize_offer_safe(msg):
     except Exception:
         return None
 
-
 def _serialize_deal_safe(msg):
-    """
-    Return the nested deal dict that negotiate.js _buildDealCard() reads,
-    or None when the message has no linked deal.
-    """
     try:
         deal = msg.deal
         if deal is None:
@@ -117,13 +97,7 @@ def _serialize_deal_safe(msg):
     except Exception:
         return None
 
-
 def _serialize_related_status(status_obj, viewer=None):
-    """
-    Return the listing snapshot dict negotiate.js / chat.js uses, including
-    active_deal_id + final_price so the buyer always sees a Pay button
-    after Buy Now.
-    """
     if status_obj is None:
         return None
     try:
@@ -149,7 +123,6 @@ def _serialize_related_status(status_obj, viewer=None):
             except Exception:
                 pass
 
-        # Compute active deal context for the viewer
         active_deal_id = None
         final_price    = None
         if viewer is not None:
@@ -165,6 +138,8 @@ def _serialize_related_status(status_obj, viewer=None):
             except Exception:
                 pass
 
+        _cat_name = (status_obj.category.name if status_obj.category else '')
+        _is_market_commercial = bool(status_obj.is_commercial) and _cat_name == 'Market'
         return {
             'status_id':        status_obj.pk,
             'username':         status_obj.user.username,
@@ -172,7 +147,8 @@ def _serialize_related_status(status_obj, viewer=None):
             'price':            str(status_obj.price) if status_obj.price is not None else None,
             'is_negotiable':    status_obj.is_negotiable,
             'media_url':        media_url,
-            'is_commercial':    True,
+            'is_commercial':    _is_market_commercial,
+            'category':         _cat_name,
             'availability':     status_obj.availability,
             'collection_point': status_obj.collection_point or '',
             'active_deal_id':   active_deal_id,
@@ -181,22 +157,53 @@ def _serialize_related_status(status_obj, viewer=None):
     except Exception:
         return None
 
+def _attachment_url(att):
+    from cloudinary import utils as cutils
+    from .helpers import _clean_public_id
+    pid = _clean_public_id(att.file)
+    if not pid:
+        return ""
+    ftype = (att.file_type or "").lower()
+    if ftype.startswith("image/"):
+        rtype = "image"
+    elif ftype.startswith("video/") or ftype.startswith("audio/"):
+        rtype = "video"
+    else:
+        rtype = "raw"
+    try:
+        url, _ = cutils.cloudinary_url(pid, resource_type=rtype, type="upload",
+                                       secure=True, sign_url=True)
+        return url or ""
+    except Exception:
+        return _get_file_url(att.file)
+
+def _quoted_image_url(quoted):
+    if quoted is None:
+        return ""
+    for att in quoted.attachments.all():
+        if (att.file_type or "").lower().startswith("image/"):
+            url = _attachment_url(att)
+            if url:
+                return url
+    return ""
+
+def _reply_thumb(msg):
+    if not msg.reply_to_msg_id:
+        return msg.reply_media or ""
+    try:
+        quoted = msg.reply_to_msg
+    except Exception:
+        quoted = None
+    if quoted is None:
+        return msg.reply_media or ""
+    if quoted.attachments.exists():
+        return _quoted_image_url(quoted)
+    return msg.reply_media or ""
+
 def _serialize_message(msg, viewer=None):
-    """
-    Full message serialisation for both get_messages and poll_messages.
-
-    The critical additions vs the previous version:
-      • 'offer'          — nested offer dict (or null)
-      • 'deal'           — nested deal dict (or null)
-      • 'related_status' — listing snapshot dict (or null)
-
-    These three fields are what negotiate.js reads to decide whether to
-    render a structured commerce card or fall back to plain message text.
-    """
-    # ── Attachments ───────────────────────────────────────────────────
     attachments = []
     for att in msg.attachments.all():
-        url = _get_file_url(att.file)
+        url = _attachment_url(att)
         if url:
             attachments.append({
                 'id':        att.id,
@@ -205,50 +212,31 @@ def _serialize_message(msg, viewer=None):
                 'file_type': att.file_type or '',
             })
 
-    # ── Reply context ─────────────────────────────────────────────────
     reply_to_id = None
     if msg.reply_to_msg_id:
         reply_to_id = msg.reply_to_msg_id
 
-    # ── Sender / recipient usernames ──────────────────────────────────
     sender_username    = msg.sender.username    if msg.sender    else ''
     recipient_username = msg.recipient.username if msg.recipient else ''
 
     return {
-        # Core identity
         'id':           msg.pk,
         'server_id':    msg.pk,
-
-        # Participants
         'sender':       sender_username,
-        'username':     sender_username,   # legacy alias some templates use
+        'username':     sender_username,
         'recipient':    recipient_username,
-
-        # Content
         'message':      msg.message or '',
         'message_type': msg.message_type or 'text',
-
-        # Timing / status
         'timestamp':    _utc_iso(msg.timestamp),
         'is_read':      msg.is_read,
-
-        # Reply thread
         'reply_to':     reply_to_id,
         'reply_sender': msg.reply_sender or '',
         'reply_text':   msg.reply_text   or '',
-        'reply_media':  msg.reply_media  or '',
-
-        # Files
+        'reply_media':  _reply_thumb(msg),
         'attachments': attachments,
-
-        # ── Commerce fields (THE FIX) ─────────────────────────────────
-        # These were missing: without them buildTransactionCard() had
-        # no nested offer/deal to read, so every negotiation message
-        # rendered as plain text instead of the structured card.
         'offer':          _serialize_offer_safe(msg),
         'deal':           _serialize_deal_safe(msg),
         'related_status': _serialize_related_status(msg.related_status),
-        # ─────────────────────────────────────────────────────────────
     }
 
 
@@ -289,7 +277,6 @@ def get_messages(request):
 
 @login_required
 def poll_messages(request):
-    """Lightweight poll — returns only messages newer than after_id."""
     recipient_username = request.GET.get('recipient', '').strip()
     after_id_raw       = request.GET.get('after_id', '0').strip()
 
@@ -328,6 +315,45 @@ def poll_messages(request):
         return JsonResponse([], safe=False)
 
 
+from django.core.cache import cache
+
+@csrf_exempt
+@login_required
+def send_typing(request):
+    if request.method != 'POST': return JsonResponse({'error': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+        recipient = data.get('recipient')
+        if recipient:
+            cache.set(f'typing_{request.user.username}_{recipient}', True, timeout=6)
+        return JsonResponse({'status': 'ok'})
+    except Exception:
+        return JsonResponse({'status': 'error'}, status=400)
+
+@login_required
+def check_typing(request):
+    recipient = request.GET.get('recipient', '').strip()
+    if not recipient:
+        return JsonResponse({'typing': False})
+    try:
+        is_typing = cache.get(f'typing_{recipient}_{request.user.username}', False)
+    except Exception:
+        is_typing = False
+    return JsonResponse({'typing': bool(is_typing)})
+
+@csrf_exempt
+@login_required
+def read_status(request):
+    if request.method != 'POST': return JsonResponse({'error': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+        ids = data.get('message_ids', [])
+        msgs = Message.objects.filter(id__in=ids, sender=request.user)
+        status = {m.id: m.is_read for m in msgs}
+        return JsonResponse({'status': status})
+    except Exception:
+        return JsonResponse({'status': {}}, status=400)
+
 @login_required
 def mark_messages_as_read(request):
     sender_username = (
@@ -359,11 +385,6 @@ def get_unread_message_count(request):
 
 @login_required
 def get_conversation_previews(request):
-    """
-    Per-contact unread count + last-message snippet for the sidebar.
-    Also flags conversations that contain market/offer messages so
-    chat.js can badge them with the 🛒 Market pill.
-    """
     me = request.user
 
     qs = (
@@ -390,15 +411,16 @@ def get_conversation_previews(request):
         if len(text) > 60:
             text = text[:60].rstrip() + '…'
 
+        sender_user = m.sender if m.recipient_id == me.id else m.recipient
         previews[other] = {
             'preview':   text,
             'timestamp': _utc_iso(m.timestamp),
             'from_me':   m.sender_id == me.id,
             'unread':    0,
-            'has_market_thread': False,   # NEW – will be set below
+            'has_market_thread': False,
+            'profile_picture': _profile_pic(sender_user),
         }
 
-    # Unread counts
     unread_rows = (
         Message.objects
         .filter(recipient=me, is_read=False, cleared_by_recipient=False)
@@ -416,7 +438,6 @@ def get_conversation_previews(request):
                 'has_market_thread': False,
             }
 
-    # Market thread flag — any conversation with a commercial related_status
     market_contacts = (
         Message.objects
         .filter(
@@ -458,7 +479,6 @@ def send_message_http(request):
     except CustomUser.DoesNotExist:
         return JsonResponse({"status": "error", "message": "Recipient not found."}, status=404)
 
-    # ── Reply context ──────────────────────────────────────────────────
     reply_to_id  = request.POST.get('reply_to', '').strip()
     reply_sender = request.POST.get('reply_sender', '').strip()[:150]
     reply_text   = request.POST.get('reply_text', '').strip()[:500]
@@ -471,19 +491,9 @@ def send_message_http(request):
         except (Message.DoesNotExist, ValueError):
             pass
 
-    # Auto-fill reply media from the quoted message's own attachment
-    if reply_to_obj and not reply_media:
-        first_att = reply_to_obj.attachments.first()
-        if first_att:
-            reply_media = (_get_file_url(first_att.file) or '')[:500]
-            if not reply_text:
-                ft = (first_att.file_type or '').lower()
-                if ft.startswith('image/'):   reply_text = '📷 Photo'
-                elif ft.startswith('video/'): reply_text = '🎬 Video'
-                elif ft.startswith('audio/'): reply_text = '🎵 Audio'
-                else: reply_text = '📎 ' + (first_att.original_filename or 'File')
+    if reply_to_obj:
+        reply_media = _quoted_image_url(reply_to_obj)[:500]
 
-    # ── Status reply — real FK + thumbnail ────────────────────────────
     is_status_reply    = request.POST.get('is_status_reply', '').strip() == 'true'
     status_id_raw      = request.POST.get('status_id', '').strip()
     related_status_obj = None
@@ -512,7 +522,6 @@ def send_message_http(request):
 
     saved_attachments = []
 
-    # ── Upload new files ───────────────────────────────────────────────
     for f in files:
         ft = f.content_type or mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         try:
@@ -528,7 +537,6 @@ def send_message_http(request):
         except Exception as e:
             logger.error(f"Attachment upload failed: {e}", exc_info=True)
 
-    # ── Forward existing attachments ───────────────────────────────────
     for raw_id in forward_attachment_ids.split(","):
         raw_id = raw_id.strip()
         if not raw_id:
@@ -577,7 +585,6 @@ def send_message_http(request):
         "message": _serialize_message(msg, viewer=request.user),
     }
 
-    # ── Web Push (best-effort) ─────────────────────────────────────────
     try:
         if message_text:
             preview = message_text[:80]
@@ -585,6 +592,7 @@ def send_message_http(request):
             preview = '📎 Attachment'
         else:
             preview = 'New message'
+
         send_push_notification(
             user=recipient,
             title=request.user.username,
@@ -592,6 +600,16 @@ def send_message_http(request):
             url=f'/?chat={request.user.username}',
             tag=f'chat-{request.user.username}',
         )
+
+        try:
+            send_fcm_to_user(
+                user=recipient,
+                title=request.user.username,
+                body=preview,
+                url=f'/?chat={request.user.username}',
+            )
+        except Exception as fcm_err:
+            logger.warning(f'FCM push failed: {fcm_err}')
     except Exception:
         pass
 
@@ -610,6 +628,11 @@ def delete_message(request, message_id):
 
     if request.user not in (msg.sender, msg.recipient):
         return JsonResponse({"status": "error", "message": "Permission denied."}, status=403)
+
+    if msg.deal and msg.deal.state not in ('completed', 'cancelled'):
+        return JsonResponse({"status": "error", "message": "Cannot delete an active deal card. It must be completed or cancelled first."}, status=400)
+    if msg.offer and msg.offer.state in ('pending', 'countered'):
+        return JsonResponse({"status": "error", "message": "Cannot delete an active offer. Withdraw or resolve it first."}, status=400)
 
     if request.user == msg.sender:
         msg.cleared_by_sender = True
@@ -638,6 +661,19 @@ def clear_chat(request):
         recipient = CustomUser.objects.get(username=recipient_username)
     except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Recipient not found."}, status=404)
+
+    # Allow clearing if deal is completed or cancelled. Block only if active.
+    active_deals = Deal.objects.filter(
+        Q(buyer=request.user, seller=recipient) | Q(buyer=recipient, seller=request.user)
+    ).exclude(state__in=('completed', 'cancelled'))
+    if active_deals.exists():
+        return JsonResponse({"error": "Cannot clear chat while you have an active deal. Complete or cancel it first."}, status=400)
+
+    # Auto-withdraw any stale pending/countered offers so they don't block the clear
+    Offer.objects.filter(
+        Q(buyer=request.user, seller=recipient) | Q(buyer=recipient, seller=request.user),
+        state__in=('pending', 'countered')
+    ).update(state='withdrawn')
 
     Message.objects.filter(sender=request.user, recipient=recipient).update(cleared_by_sender=True)
     Message.objects.filter(sender=recipient, recipient=request.user).update(cleared_by_recipient=True)

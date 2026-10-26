@@ -121,6 +121,13 @@ Include with: {% include "partials/market_panel.html" %}
         </div>
       </div>
       <div class="mp-field mp-field-flex">
+        <label class="mp-field-label" for="mp-quantity">Quantity</label>
+        <input id="mp-quantity" type="number" class="mp-input" value="1" min="1" step="1">
+      </div>
+    </div>
+
+    <div class="mp-field-row">
+      <div class="mp-field mp-field-flex">
         <label class="mp-field-label">Availability</label>
         <select id="mp-availability" class="mp-select">
           <option value="available">✅ Available</option>
@@ -387,7 +394,7 @@ Include with: {% include "partials/market_panel.html" %}
 .mp-chip:hover  { border-color: #e6a817; color: #e6a817; }
 .mp-chip.active { border-color: #e6a817; background: rgba(230,168,23,.15); color: #e6a817; }
 .mp-field { margin-bottom: 16px; }
-.mp-field-row { display: flex; gap: 12px; margin-bottom: 0; }
+.mp-field-row { display: flex; gap: 12px; margin-bottom: 8px; }
 .mp-field-flex { flex: 1; margin-bottom: 16px; }
 .mp-input, .mp-textarea, .mp-select { width: 100%; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; color: var(--text,#e9edef); padding: 10px 13px; font-size: 13px; font-family: inherit; outline: none; transition: border-color .15s, background .15s; appearance: none; -webkit-appearance: none; }
 .mp-input:focus, .mp-textarea:focus, .mp-select:focus { border-color: #e6a817; background: rgba(230,168,23,.06); }

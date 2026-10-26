@@ -10,6 +10,7 @@ if (!State.wp) {
     selectedVis: 'invite_only',
     activeEventId: null,
     activeInviteUrl: null,
+    guestPollTimer: null,
   };
 }
 
@@ -40,7 +41,21 @@ function switchWpTab(tab) {
     var tabBtn = document.getElementById('wp-tab-' + t);
     if (tabBtn) tabBtn.classList.toggle('active', t === tab);
   });
-  if (tab === 'guests' && State.wp.activeEventId) loadWeddingGuests();
+
+  if (State.wp.guestPollTimer) {
+    clearInterval(State.wp.guestPollTimer);
+    State.wp.guestPollTimer = null;
+  }
+
+  if (tab === 'guests' && State.wp.activeEventId) {
+    loadWeddingGuests();
+    State.wp.guestPollTimer = setInterval(function() {
+      if (State.wp.activeEventId && document.getElementById('wp-guests-section').style.display !== 'none') {
+        loadWeddingGuests(true);
+      }
+    }, 3000);
+  }
+  
   if (tab === 'myevents') loadMyEvents();
 }
 
@@ -138,19 +153,36 @@ function renderInviteCard(eventData) {
 
   var coverUrl = eventData.cover_photo || '';
 
+  var _e = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+  var rsvpVal = (document.getElementById('wp-rsvp-deadline') || {}).value || '';
+  var rsvpFmt = rsvpVal ? new Date(rsvpVal).toLocaleDateString('en-ZM', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  var dateObj = isoDate ? new Date(isoDate) : null;
+  var dayNum = dateObj ? dateObj.getDate() : '';
+  var monShort = dateObj ? dateObj.toLocaleDateString('en-ZM', { month: 'short' }).toUpperCase() : '';
+  var weekday = dateObj ? dateObj.toLocaleDateString('en-ZM', { weekday: 'long' }) : '';
+  var family = (document.getElementById('wp-family-name') || {}).value || '';
+
   wrap.innerHTML =
-    '<div class="wp-invite-card"' + (coverUrl ? ' style="background-image:url(\'' + coverUrl + '\');background-size:cover;background-position:center;"' : '') + '>' +
-      (coverUrl ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);"></div>' : '') +
-      '<div style="position:relative;z-index:1;">' +
-        '<div class="wp-card-event-type">' + evType + '</div>' +
-        '<div class="wp-card-title">' + titleVal + '</div>' +
-        (names ? '<div class="wp-card-names">' + names + '</div>' : '') +
-        '<div class="wp-card-details">' +
-          (venue   ? '📍 ' + venue + '<br>'   : '') +
-          (fmtDate ? '📅 ' + fmtDate + '<br>' : '') +
-          (fmtT    ? '⏰ ' + fmtT             : '') +
+    '<div class="ev-card"' + (coverUrl ? ' style="background-image:url(\'' + _e(coverUrl) + '\');"' : '') + '>' +
+      '<div class="ev-card-shade"></div>' +
+      '<div class="ev-card-body">' +
+        '<div class="ev-card-top">' +
+          '<span class="ev-chip">' + _e(evType) + '</span>' +
+          (dateObj ? '<div class="ev-date"><div class="ev-date-day">' + dayNum + '</div><div class="ev-date-mon">' + monShort + '</div></div>' : '') +
         '</div>' +
-        (dress ? '<div class="wp-card-dress">👗 ' + dress + '</div>' : '') +
+        '<div class="ev-title">' + _e(titleVal) + '</div>' +
+        (names ? '<div class="ev-names">' + _e(names) + '</div>' : '') +
+        '<div class="ev-info">' +
+          (weekday || fmtT ? '<div class="ev-row"><i class="fas fa-clock"></i><span>' + _e([weekday, fmtT].filter(Boolean).join(' · ')) + '</span></div>' : '') +
+          (venue ? '<div class="ev-row"><i class="fas fa-map-marker-alt"></i><span>' + _e(venue) + '</span></div>' : '') +
+          (dress ? '<div class="ev-row"><i class="fas fa-tshirt"></i><span>Dress code: ' + _e(dress) + '</span></div>' : '') +
+          (rsvpFmt ? '<div class="ev-row"><i class="fas fa-reply"></i><span>RSVP by ' + _e(rsvpFmt) + '</span></div>' : '') +
+        '</div>' +
+        (family ? '<div class="ev-foot">Hosted by ' + _e(family) + '</div>' : '') +
       '</div>' +
     '</div>' +
     '<p style="font-size:11px;color:var(--sub);margin:10px 0 6px;text-align:center;">Share this link with your guests</p>' +
@@ -231,35 +263,46 @@ async function inviteToWeddingEvent() {
   } catch(e) { stat.textContent = 'Network error.'; stat.className = 'modal-status err'; }
 }
 
-async function loadWeddingGuests() {
+async function loadWeddingGuests(silent) {
   if (!State.wp.activeEventId) return;
   var wrap = document.getElementById('wp-guest-list');
-  wrap.innerHTML = '<p style="font-size:12px;color:var(--sub);">Loading…</p>';
+  if (!silent) {
+    wrap.innerHTML = '<p style="font-size:12px;color:var(--sub);">Loading…</p>';
+  }
   try {
     var res = await API.getEventGuests(State.wp.activeEventId);
     var d   = res.data;
     if (!res.ok) { wrap.innerHTML = '<p style="font-size:12px;color:#f15c6d;">' + d.error + '</p>'; return; }
     var rsvpClass = { accepted:'rsvp-accepted', declined:'rsvp-declined', maybe:'rsvp-maybe', pending:'rsvp-pending' };
     var rsvpIcon  = { accepted:'✅', declined:'❌', maybe:'🤔', pending:'⏳' };
-    wrap.innerHTML =
-      '<div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;color:var(--sub);">' +
+    var statsHtml = '<div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;color:var(--sub);">' +
         '<span>✅ ' + d.accepted + ' Attending</span>' +
         '<span>❌ ' + d.declined + ' Declined</span>' +
         '<span>🤔 ' + d.maybe   + ' Maybe</span>' +
         '<span>⏳ ' + d.pending + ' Pending</span>' +
-      '</div>' +
-      d.guests.map(function(g) {
+      '</div>';
+      
+    var listHtml = d.guests.map(function(g) {
         return '<div class="wp-guest-item">' +
           '<img class="wp-guest-avatar" src="' + (g.profile_picture || window.ASTERIX.DEFAULT_AVATAR) + '" alt="' + g.username + '">' +
           '<div class="wp-guest-info"><div class="wp-guest-name">' + g.username + '</div></div>' +
           '<span class="wp-rsvp-badge ' + (rsvpClass[g.rsvp] || '') + '">' + (rsvpIcon[g.rsvp] || '') + ' ' + g.rsvp + '</span>' +
         '</div>';
       }).join('');
-  } catch(e) { wrap.innerHTML = '<p style="font-size:12px;color:#f15c6d;">Could not load guests.</p>'; }
+      
+    wrap.innerHTML = statsHtml + listHtml;
+  } catch(e) { 
+      if (!silent) wrap.innerHTML = '<p style="font-size:12px;color:#f15c6d;">Could not load guests.</p>'; 
+  }
 }
 
 // ── My Events ───────────────────────────────────────────────────────
 async function loadMyEvents() {
+  var guestsTab = document.getElementById('wp-tab-guests');
+  var myEventsTab = document.getElementById('wp-tab-myevents');
+  if (guestsTab) guestsTab.style.display = 'block';
+  if (myEventsTab) myEventsTab.style.display = 'block';
+  
   var container = document.getElementById('wp-myevents-list');
   if (!container) return;
   container.innerHTML = '<p style="color:var(--sub);">Loading...</p>';
@@ -271,7 +314,7 @@ async function loadMyEvents() {
       return;
     }
     container.innerHTML = data.events.map(function(e) {
-      var cover = e.cover_photo || '/static/images/default_event.jpg';
+      var cover = e.cover_photo || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg';
       var date = e.event_date ? new Date(e.event_date).toLocaleDateString() : '';
       return '<div class="wp-my-event-item" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">' +
         '<img src="' + cover + '" style="width:50px;height:50px;border-radius:8px;object-fit:cover;">' +
@@ -301,3 +344,20 @@ window.shareEventToStatus = shareEventToStatus;
 window.inviteToWeddingEvent = inviteToWeddingEvent;
 window.loadWeddingGuests = loadWeddingGuests;
 window.loadMyEvents = loadMyEvents;
+
+// Expose openGuests so status.js can trigger it
+window.Asterix = window.Asterix || {};
+window.Asterix.wedding = window.Asterix.wedding || {};
+window.Asterix.wedding.openGuests = function(eventId) {
+    State.wp.activeEventId = eventId;
+    // Show host-only tabs
+    var guestsTab = document.getElementById('wp-tab-guests');
+    var myEventsTab = document.getElementById('wp-tab-myevents');
+    if (guestsTab) guestsTab.style.display = 'block';
+    if (myEventsTab) myEventsTab.style.display = 'block';
+    
+    openWeddingPanel();
+    setTimeout(function() {
+        switchWpTab('guests');
+    }, 300);
+};

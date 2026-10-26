@@ -18,6 +18,8 @@ User = get_user_model()
 def signup_view(request):
     if request.method == "POST":
         form = SignUpForm(request.POST, request.FILES)
+        if form.is_valid() and not request.POST.get('agree_terms'):
+            form.add_error(None, 'Please agree to the Terms of Service and Privacy Policy to create your account.')
         if form.is_valid():
             user = form.save()
 
@@ -48,9 +50,23 @@ def signup_view(request):
 
 @login_required
 def chat_view(request):
-    contact_ids  = Contact.objects.filter(owner=request.user).values_list('contact_user_id', flat=True)
-    users        = User.objects.filter(id__in=contact_ids).exclude(id=request.user.id)
-    private_key  = request.session.pop('_tmp_private_key', None)
+    from django.db.models import Q
+    from ..models import Contact, Message, CustomUser
+
+    contact_ids = set(Contact.objects.filter(owner=request.user).values_list('contact_user_id', flat=True))
+    
+    # Only include messaged users if the chat is NOT cleared
+    active_msgs = Message.objects.filter(
+        Q(sender=request.user, cleared_by_sender=False) |
+        Q(recipient=request.user, cleared_by_recipient=False)
+    )
+    msg_user_ids = set(active_msgs.values_list('sender_id', flat=True)) | set(active_msgs.values_list('recipient_id', flat=True))
+
+    combined_ids = contact_ids.union(msg_user_ids)
+    combined_ids.discard(request.user.id)
+
+    users = CustomUser.objects.filter(id__in=combined_ids)
+    private_key = request.session.pop('_tmp_private_key', None)
     return render(request, 'index.html', {'users': users, 'private_key': private_key})
 
 

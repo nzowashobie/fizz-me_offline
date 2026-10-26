@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Broadcast · Fizzme</title>
+<style>
+  body{margin:0;background:#0b141a;color:#e9edef;font-family:Segoe UI,system-ui,Arial,sans-serif;}
+  .wrap{max-width:560px;margin:0 auto;padding:24px 18px 60px;}
+  h1{font-size:22px;margin:0 0 6px;}
+  .muted{color:#8696a0;font-size:13px;line-height:1.5;margin-bottom:18px;}
+  .card{background:#1a1f1f;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:18px;margin-bottom:16px;}
+  label{display:block;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#8696a0;margin-bottom:8px;}
+  textarea{width:100%;box-sizing:border-box;min-height:110px;background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;font-size:15px;font-family:inherit;}
+  button{width:100%;margin-top:12px;padding:13px;border:0;border-radius:24px;background:#25d366;color:#000;font-weight:700;font-size:15px;cursor:pointer;}
+  .ok{color:#25d366;font-weight:600;}
+  .err{color:#f15c6d;font-weight:600;}
+  .now{font-size:14px;line-height:1.5;color:#c8d0d4;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Send an update message</h1>
+  <div class="muted">Every user receives this in chat and a notification, and the app shows a Reload banner.</div>
+
+  {% if sent is not None %}<div class="card ok">Sent to {{ sent }} user{{ sent|pluralize }}.</div>{% endif %}
+  {% if error %}<div class="card err">{{ error }}</div>{% endif %}
+
+  <div class="card">
+    <form method="post">
+      {% csrf_token %}
+      <label for="msg">Message</label>
+      <textarea id="msg" name="message" maxlength="300" placeholder="e.g. We fixed payments. Tap Reload app to update."></textarea>
+      <button type="submit">Send to all users</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <label>Current update</label>
+    {% if current.version %}
+      <div class="now">{{ current.message }}</div>
+    {% else %}
+      <div class="now">No update message has been sent yet.</div>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

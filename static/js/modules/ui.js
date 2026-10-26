@@ -341,7 +341,7 @@
   function loadSettingsUI() {
     try {
       var bg = localStorage.getItem('asterix_bg') || 'default';
-      var fontSize = parseInt(localStorage.getItem('asterix_font_size')) || 14;
+      var fontSize = parseInt(localStorage.getItem('asterix_font_size')) || 15;
       var compact = localStorage.getItem('asterix_compact') === 'true';
       var notifs = localStorage.getItem('asterix_notifs') !== 'false';
       var vibrate = localStorage.getItem('asterix_vibrate') !== 'false';
@@ -458,14 +458,15 @@
 
   // ── Font size ──────────────────────────────────────────────────────
   function applyFontSize(size) {
-    document.documentElement.style.fontSize = size + 'px';
+    var shell = document.getElementById('app-shell') || document.body;
+    if (shell) shell.style.fontSize = size + 'px';
     localStorage.setItem('asterix_font_size', String(size));
     var label = document.getElementById('font-size-label');
     if (label) label.textContent = size + 'px';
   }
 
   function changeFontSize(delta) {
-    var current = parseInt(localStorage.getItem('asterix_font_size')) || 14;
+    var current = parseInt(localStorage.getItem('asterix_font_size')) || 15;
     var newSize = Math.min(Math.max(current + delta, 10), 24);
     applyFontSize(newSize);
     toast('Font size', newSize + 'px');
@@ -726,7 +727,7 @@
 
     var bg = localStorage.getItem('asterix_bg') || 'default';
     applyBackground(bg);
-    var fontSize = parseInt(localStorage.getItem('asterix_font_size')) || 14;
+    var fontSize = parseInt(localStorage.getItem('asterix_font_size')) || 15;
     applyFontSize(fontSize);
     var compact = localStorage.getItem('asterix_compact') === 'true';
     applyCompact(compact);

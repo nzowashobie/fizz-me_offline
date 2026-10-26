@@ -41,6 +41,8 @@ LOCKED_STATES = ('reserved', 'sold')
 # ─────────────────────────────────────────────────────────────
 
 def _listing_snapshot(status_obj):
+    _cat = (status_obj.category.name if getattr(status_obj, 'category', None) else '')
+    _is_market_commercial = bool(status_obj.is_commercial) and _cat == 'Market'
     return {
         'status_id':        status_obj.pk,
         'username':         status_obj.user.username,
@@ -48,7 +50,8 @@ def _listing_snapshot(status_obj):
         'price':            str(status_obj.price) if status_obj.price is not None else None,
         'is_negotiable':    status_obj.is_negotiable,
         'media_url':        _media_url(status_obj),
-        'is_commercial':    True,
+        'is_commercial':    _is_market_commercial,
+        'category':         _cat,
         'availability':     status_obj.availability,
         'collection_point': status_obj.collection_point or '',
     }
@@ -222,8 +225,8 @@ def create_offer(request):
         return JsonResponse({'status': 'error', 'error': "That's your own listing."}, status=400)
     if not status_obj.is_negotiable:
         return JsonResponse({'status': 'error', 'error': 'This listing is not negotiable.'}, status=400)
-    if status_obj.availability in LOCKED_STATES:
-        return JsonResponse({'status': 'error', 'error': 'This item is no longer available.'}, status=409)
+    if status_obj.availability in LOCKED_STATES or getattr(status_obj, 'quantity', 1) <= 0:
+            return JsonResponse({'status': 'error', 'error': 'This item is no longer available.'}, status=409)
 
     if Offer.objects.filter(status=status_obj, proposed_by=request.user, state='pending').exists():
         return JsonResponse(
@@ -401,8 +404,10 @@ def respond_to_offer(request):
                 seller_confirmed=False,
             )
 
-            locked_status.availability = 'reserved'
-            locked_status.save(update_fields=['availability'])
+            locked_status.quantity -= 1
+            if locked_status.quantity == 0:
+                locked_status.availability = 'sold'
+            locked_status.save(update_fields=['quantity', 'availability'])
 
         text = f"🎉 Deal agreed at K{locked_offer.amount:,.2f}! Tap to confirm and pay."
         msg  = _send_message(
@@ -484,7 +489,7 @@ def take_listing(request):
 
         if status_obj.user == request.user:
             return JsonResponse({'status': 'error', 'error': "That's your own listing."}, status=400)
-        if status_obj.availability in LOCKED_STATES:
+        if status_obj.availability in LOCKED_STATES or getattr(status_obj, 'quantity', 1) <= 0:
             return JsonResponse({'status': 'error', 'error': 'This item is no longer available.'}, status=409)
 
         deal = Deal.objects.create(
@@ -500,8 +505,10 @@ def take_listing(request):
             buyer_confirmed=True,
             seller_confirmed=False,
         )
-        status_obj.availability = 'reserved'
-        status_obj.save(update_fields=['availability'])
+        status_obj.quantity -= 1
+        if status_obj.quantity == 0:
+            status_obj.availability = 'sold'
+        status_obj.save(update_fields=['quantity', 'availability'])
 
     # Carry the buyer's enquiry into the deal card as well.
     enquiry_text = _find_recent_enquiry(
@@ -614,8 +621,8 @@ def complete_deal(request):
         deal.state = 'completed'
         deal.save()
 
-        status_obj.availability = 'sold'
-        status_obj.save(update_fields=['availability'])
+        # Availability is already handled by quantity
+        pass
 
     notify_user = deal.seller if deal.buyer == request.user else deal.buyer
     text = (

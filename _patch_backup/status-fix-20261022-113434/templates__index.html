@@ -1,0 +1,439 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#128c7e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fizzme">
+  <link rel="icon" href="{% static 'images/favicon-32.png' %}" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
+  <title>Fizzme</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  <style>
+    @keyframes loadBar { 0% { width:0%; } 50% { width:70%; } 100% { width:100%; } }
+
+    /* ── Force dark rendering on all native selects in modals ───────────
+       Native <select> dropdowns use system colors by default — on dark-
+       themed pages the browser paints optgroup labels grey-on-grey.
+       color-scheme:dark tells the browser to use dark system UI; the
+       explicit background/color rules ensure every browser honors it.    */
+    .modal-card select.modal-input,
+    .modal-card select.modal-input option,
+    .modal-card select.modal-input optgroup {
+      color-scheme: dark;
+      background-color: #1a1f1f;
+      color: #e8eaea;
+    }
+    .modal-card select.modal-input optgroup {
+      font-weight: 700;
+      color: #25d366;
+    }
+    .modal-card select.modal-input option {
+      font-weight: 400;
+      padding: 6px 4px;
+    }
+    /* In-chat commerce panel select (no modal-card wrapper) */
+    #chat-commerce-panel select {
+      color-scheme: dark;
+      background-color: #1a1f1f !important;
+      color: #e8eaea !important;
+    }
+    #chat-commerce-panel select option,
+    #chat-commerce-panel select optgroup {
+      background-color: #1a1f1f;
+      color: #e8eaea;
+    }
+    #chat-commerce-panel select optgroup {
+      font-weight: 700;
+      color: #25d366;
+    }
+  </style>
+
+</head>
+<body>
+
+<!-- ── SPLASH SCREEN ─────────────────────────────────────────────── -->
+<div id="loading-splash" style="position:fixed;inset:0;background:#111616;display:flex;align-items:center;justify-content:center;z-index:999999;color:#25d366;font-size:24px;font-weight:700;flex-direction:column;gap:12px;">
+  <img src="{% static 'images/icon-192.png' %}" alt="" style="width:88px;height:88px;">
+  <span>Fizzme</span>
+  <div style="width:60px;height:4px;background:#2a2f2f;border-radius:2px;overflow:hidden;">
+    <div style="width:0%;height:100%;background:#25d366;animation:loadBar 1.2s ease-in-out infinite;"></div>
+  </div>
+</div>
+
+<script>
+  (function hideSplash() {
+    var splash = document.getElementById('loading-splash');
+    if (!splash) return;
+    var hide = function() { splash.style.display = 'none'; };
+    setTimeout(hide, 2500);
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      hide();
+    } else {
+      document.addEventListener('DOMContentLoaded', hide);
+    }
+  })();
+</script>
+
+{% include 'partials/auth_wall.html' %}
+
+<div id="app-shell">
+  {% include 'partials/sidebar.html' %}
+  {% include 'partials/chat_area.html' %}
+</div>
+
+{% include 'partials/status_viewer.html' %}
+{% include 'partials/wedding_panel.html' %}
+{% include 'partials/market_panel.html' %}
+
+{% include 'partials/modals/profile_modal.html' %}
+{% include 'partials/modals/partners_modal.html' %}
+{% include 'partials/modals/confirm_modal.html' %}
+{% include 'partials/modals/alert_modal.html' %}
+{% include 'partials/modals/phone_modal.html' %}
+{% include 'partials/modals/forward_modal.html' %}
+{% include 'partials/modals/settings_modal.html' %}
+{% include 'partials/modals/edit_status_modal.html' %}
+
+<!-- ── Offer Modal ────────────────────────────────────────────────── -->
+<div id="offer-modal" class="modal-overlay" onclick="if(event.target===this) closeOfferModal()">
+  <div class="modal-card" style="width:340px;">
+    <div class="modal-header">
+      <i class="fas fa-handshake" style="color:#e6a817;"></i>
+      <h3 style="color:#e6a817;">Make an Offer</h3>
+      <button class="modal-close" onclick="closeOfferModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label for="offer-amount">Your offer (ZMW)</label>
+        <input type="number" id="offer-amount" class="modal-input" placeholder="e.g. 1200" min="0" step="0.01" autofocus>
+        <input type="hidden" id="offer-status-id" value="">
+        <div id="offer-status" class="modal-status"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="closeOfferModal()">Cancel</button>
+        <button class="modal-btn primary" id="offer-submit-btn" onclick="submitOffer()">Send Offer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Counter Offer Modal ────────────────────────────────────────── -->
+<div id="counter-offer-modal" class="modal-overlay" onclick="if(event.target===this) closeCounterOfferModal()">
+  <div class="modal-card" style="width:340px;">
+    <div class="modal-header" style="background:linear-gradient(135deg,#e6a817,#c98a00);">
+      <i class="fas fa-handshake" style="color:#000;"></i>
+      <h3 style="color:#000;">Counter Offer</h3>
+      <button class="modal-close" onclick="closeCounterOfferModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label for="counter-amount">Your counter price (ZMW)</label>
+        <input type="number" id="counter-amount" class="modal-input" placeholder="e.g. 240" min="0" step="0.01" autofocus>
+        <input type="hidden" id="counter-offer-id" value="">
+        <div id="counter-status" class="modal-status"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="closeCounterOfferModal()">Cancel</button>
+        <button class="modal-btn primary" id="counter-submit-btn" style="background:#e6a817;color:#000;" onclick="submitCounterOffer()">Send Counter</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Buy Now Modal ────────────────────────────────────────────────── -->
+<div id="buy-modal" class="modal-overlay" onclick="if(event.target===this) closeBuyModal()">
+  <div class="modal-card" style="width:400px;">
+    <div class="modal-header" style="background:linear-gradient(135deg, #25d366 0%, #128c7e 100%);">
+      <i class="fas fa-shopping-cart"></i>
+      <h3 style="color:#fff;">Buy Now</h3>
+      <button class="modal-close" onclick="closeBuyModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Product card — thumbnail + name + price -->
+      <div id="buy-product-card" style="display:flex;gap:12px;align-items:center;background:rgba(255,255,255,0.05);border-radius:12px;padding:10px 12px;margin-bottom:14px;border:1px solid rgba(255,255,255,0.08);">
+        <div id="buy-thumb-wrap" style="width:60px;height:60px;border-radius:8px;overflow:hidden;background:var(--mid);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+          <img id="buy-product-thumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none;">
+          <i id="buy-thumb-icon" class="fas fa-tag" style="font-size:22px;color:var(--sub);"></i>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div id="buy-item-title" style="font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+          <div id="buy-item-price" style="font-size:16px;font-weight:800;color:#e6a817;margin-top:2px;"></div>
+          <div id="buy-item-note" style="font-size:11px;color:var(--sub);margin-top:1px;"></div>
+        </div>
+      </div>
+
+      <div class="modal-field">
+        <label for="buy-payment-method">Payment Method</label>
+        <select id="buy-payment-method" class="modal-input" onchange="toggleBuyMobileField()">
+          <option value="">Select payment method…</option>
+          <optgroup label="📱 Mobile Money">
+            <option value="airtel_money">Airtel Money (097 / 077)</option>
+            <option value="mtn_money">MTN MoMo (096 / 076)</option>
+            <option value="zamtel_kwacha">Zamtel Kwacha (095 / 075)</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option value="cash">Cash on Delivery / Pickup</option>
+            <option value="bank_transfer">Bank Transfer</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <!-- Mobile number — shown only when mobile money is selected -->
+      <div class="modal-field" id="buy-mobile-field" style="display:none;">
+        <label for="buy-mobile-number" id="buy-mobile-label">Mobile Money Number</label>
+        <input type="tel" id="buy-mobile-number" class="modal-input"
+               placeholder="e.g. 0977123456"
+               maxlength="15"
+               style="letter-spacing:.04em;">
+        <small id="buy-mobile-hint" style="color:var(--sub);font-size:11px;margin-top:3px;display:block;"></small>
+      </div>
+
+      <div class="modal-field">
+        <label for="buy-delivery-address">Delivery / Pickup Address</label>
+        <input type="text" id="buy-delivery-address" class="modal-input" placeholder="e.g. Chisokone Market, Kitwe">
+      </div>
+      <div class="modal-field">
+        <label for="buy-delivery-instructions">Additional Instructions</label>
+        <textarea id="buy-delivery-instructions" class="modal-input" rows="2" placeholder="e.g. Call upon arrival"></textarea>
+      </div>
+      <div id="buy-status" class="modal-status"></div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="closeBuyModal()">Cancel</button>
+        <button class="modal-btn primary" id="buy-submit-btn" onclick="submitBuyNow()">Confirm Purchase</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Complete Deal Modal ────────────────────────────────────────── -->
+<div id="complete-deal-modal" class="modal-overlay" onclick="if(event.target===this) closeCompleteDealModal()">
+  <div class="modal-card" style="width:400px;">
+    <div class="modal-header" style="background:linear-gradient(135deg, #25d366 0%, #128c7e 100%);">
+      <i class="fas fa-handshake"></i>
+      <h3 style="color:#fff;">Complete Sale</h3>
+      <button class="modal-close" onclick="closeCompleteDealModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--sub);margin-bottom:16px;">
+        Please provide payment details to complete this sale.
+      </p>
+      <div class="modal-field">
+        <label for="complete-payment-method">Payment Method</label>
+        <select id="complete-payment-method" class="modal-input">
+          <option value="">Select payment method…</option>
+          <optgroup label="📱 Mobile Money">
+            <option value="airtel_money">Airtel Money (097 / 077)</option>
+            <option value="mtn_money">MTN MoMo (096 / 076)</option>
+            <option value="zamtel_kwacha">Zamtel Kwacha (095 / 075)</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="cash">Cash on Delivery / Pickup</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label for="complete-payment-account">Payment Account (optional)</label>
+        <input type="text" id="complete-payment-account" class="modal-input" placeholder="e.g., mobile number or bank account name">
+      </div>
+      <div class="modal-field">
+        <label for="complete-payment-reference">Payment Reference (optional)</label>
+        <input type="text" id="complete-payment-reference" class="modal-input" placeholder="e.g., transaction reference">
+      </div>
+      <div id="complete-deal-status" class="modal-status"></div>
+      <div class="modal-actions">
+        <button class="modal-btn secondary" onclick="closeCompleteDealModal()">Cancel</button>
+        <button class="modal-btn primary" id="complete-deal-submit" onclick="submitCompleteDeal()">Complete Sale</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast & overlays -->
+<div id="toast" role="alert" aria-live="assertive" aria-atomic="true">
+  <img src="{{ request.user.profile.profile_picture_url }}" alt="" id="toast-img">
+  <div class="toast-body">
+    <strong id="toast-title"></strong>
+    <span id="toast-body"></span>
+  </div>
+</div>
+
+<div id="zoom-overlay">
+  <button id="zoom-close" aria-label="Close zoom"><i class="fas fa-times"></i></button>
+  <div id="zoom-content"></div>
+</div>
+
+<div id="contact-info-overlay"></div>
+<div id="contact-info-panel">
+  <button class="cip-close" id="close-contact-info" aria-label="Close contact info">&times;</button>
+  <img id="cip-avatar" src="" alt="Contact photo">
+  <div id="cip-username"></div>
+  <div id="cip-phone"><i class="fas fa-phone"></i> <span id="cip-phone-text"></span></div>
+</div>
+
+<div id="offline-banner"><i class="fas fa-wifi-slash" style="margin-right:6px;"></i> You're offline — messages will send when reconnected.</div>
+
+<audio id="notif-snd" src="{% static 'sounds/notification-sound.mp3' %}" preload="auto"></audio>
+
+<!-- User Actions Context Menu -->
+<div id="user-actions-context-menu">
+  <div id="ua-profile-modal-btn"  class="ua-item"><i class="fas fa-user"></i> Profile</div>
+  <div id="ua-add-contact"        class="ua-item"><i class="fas fa-user-plus"></i> Add Contact</div>
+  <div id="ua-toggle-sound"       class="ua-item"><i class="fas fa-bell"></i> <span id="ua-sound-text">Mute Notifications</span></div>
+  <div id="ua-partners-modal-btn" class="ua-item"><i class="fas fa-satellite-dish"></i> Partners</div>
+  <a id="ua-videos-btn" href="{% url 'video_page' %}" class="ua-item" data-videos-badge style="text-decoration:none;color:inherit;"><i class="fas fa-play-circle"></i> Videos</a>
+  <div id="ua-settings"           class="ua-item"><i class="fas fa-cog"></i> Settings</div>
+  <div id="ua-reload-app" class="ua-item"><i class="fas fa-sync-alt"></i> Reload app</div>
+  <div class="ua-item" style="height:1px;background:var(--border);padding:0;margin:2px 0;"></div>
+  <div id="ua-clear"              class="ua-item"><i class="fas fa-trash-alt"></i> Clear Chat</div>
+  <div id="ua-remove-contact"     class="ua-item"><i class="fas fa-user-minus"></i> Remove Contact</div>
+  <div id="ua-block"              class="ua-item danger"><i class="fas fa-ban"></i> Block User</div>
+<!--  <form method="post" action="{% url 'logout-user' %}" style="display:contents;" id="logout-form">
+    {% csrf_token %}
+    <button type="submit" class="ua-item" id="ua-logout" style="background:none;border:none;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer;">
+      <i class="fas fa-sign-out-alt"></i> Logout
+    </button>
+  </form>-->
+</div>
+
+<!-- JS: Django context vars -->
+<script>
+  window.ASTERIX = {
+    ME: '{{ request.user.username }}',
+    STATIC_URL: '{% static "" %}',
+    DEFAULT_AVATAR: '{% static "images/default_profile_picture.webp" %}',
+    CSRF: '{{ csrf_token }}'
+  };
+  {% if private_key %}
+  (function() {
+    try { localStorage.setItem('_asterix_pk_' + window.ASTERIX.ME, '{{ private_key|escapejs }}'); }
+    catch(e) { console.warn('Could not cache private key', e); }
+  })();
+  {% endif %}
+</script>
+
+<!-- Core modules -->
+<script src="{% static 'js/core/constants.js' %}"></script>
+<script src="{% static 'js/core/utils.js' %}"></script>
+<script src="{% static 'js/core/api.js' %}"></script>
+<script src="{% static 'js/core/state.js' %}"></script>
+
+<!-- Feature modules (defer) -->
+<script src="{% static 'js/modules/ui.js' %}" defer></script>
+<script src="{% static 'js/modules/negotiate.js' %}" defer></script>
+<script src="{% static 'js/modules/chat.js' %}" defer></script>
+<script src="{% static 'js/modules/polling.js' %}" defer></script>
+<script src="{% static 'js/modules/status.js' %}" defer></script>
+<script src="{% static 'js/modules/pro_features.js' %}" defer></script>
+<script src="{% static 'js/modules/profile.js' %}" defer></script>
+<script src="{% static 'js/modules/emoji.js' %}" defer></script>
+<script src="{% static 'js/modules/media-editor.js' %}"></script>
+<script src="{% static 'js/modules/settings.js' %}" defer></script>
+<script src="{% static 'js/modules/wedding.js' %}" defer></script>
+<script src="{% static 'js/modules/android.js' %}" defer></script>
+<script src="{% static 'js/modules/contacts_modal.js' %}" defer></script>
+<script src="{% static 'js/modules/market.js' %}" defer></script>
+<script src="{% static 'js/modules/deals.js' %}" defer></script>
+<script src="{% static 'js/modules/payment.js' %}" defer></script>
+
+<script src="{% static 'js/modules/checkout.js' %}" defer></script>
+<script src="{% static 'js/modules/cart.js' %}"></script>
+<script src="{% static 'js/modules/sync.js' %}" defer></script>
+
+<script src="{% static 'js/app.js' %}" defer></script>
+
+<!-- ── Wedding button inside My Status panel ────────────────────── -->
+<script>
+  (function() {
+    function initWeddingButtonInStatus() {
+      var catSel = document.getElementById('status-cat-sel');
+      if (!catSel) return;
+      function showWeddingButton(cat) {
+        var existing = document.getElementById('wedding-event-hint');
+        if (cat === 'Weddings') {
+          if (!existing) {
+            var hint = document.createElement('div');
+            hint.id = 'wedding-event-hint';
+            hint.style.cssText =
+              'background:rgba(233,30,99,.1);border:1px solid rgba(233,30,99,.25);border-radius:8px;' +
+              'padding:10px 14px;margin-top:12px;margin-bottom:8px;font-size:13px;color:#f48fb1;cursor:pointer;' +
+              'display:flex;align-items:center;justify-content:space-between;transition:background .15s;';
+            hint.innerHTML =
+              '<span><i class="fas fa-ring" style="margin-right:8px;"></i> <strong>Planning a wedding?</strong> Create an event with guest list &amp; invite card.</span>' +
+              '<span style="background:#e91e63;color:#fff;border-radius:20px;padding:2px 14px;font-size:12px;font-weight:700;white-space:nowrap;">+ Create</span>';
+            hint.onclick = function(e) {
+              e.stopPropagation();
+              if (typeof closeMyStatus === 'function') closeMyStatus();
+              if (typeof openWeddingPanel === 'function') {
+                setTimeout(openWeddingPanel, 300);
+              } else {
+                var overlay = document.getElementById('wedding-panel-overlay');
+                if (overlay) overlay.classList.add('open');
+                var panel = document.getElementById('wedding-panel');
+                if (panel) panel.classList.add('open');
+              }
+            };
+            var insertAfter = document.getElementById('market-link-wrap');
+            if (insertAfter && insertAfter.parentNode) {
+              insertAfter.parentNode.insertBefore(hint, insertAfter.nextSibling);
+            } else {
+              var caption = document.getElementById('status-caption-input');
+              if (caption && caption.parentNode) { caption.parentNode.appendChild(hint); }
+            }
+          }
+        } else {
+          if (existing) existing.remove();
+        }
+      }
+      catSel.addEventListener('change', function() { showWeddingButton(this.value); });
+      if (catSel.value === 'Weddings') { showWeddingButton('Weddings'); }
+      var panel = document.getElementById('my-status-panel');
+      if (panel) {
+        var observer = new MutationObserver(function() {
+          if (panel.style.display === 'block') { showWeddingButton(catSel.value); observer.disconnect(); }
+        });
+        observer.observe(panel, { attributes: true, attributeFilter: ['style'] });
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initWeddingButtonInStatus);
+    } else {
+      initWeddingButtonInStatus();
+    }
+  })();
+</script>
+
+<script>
+  (function() {
+    var splash = document.getElementById('loading-splash');
+    if (splash && splash.style.display !== 'none') {
+      setTimeout(function() { splash.style.display = 'none'; }, 3000);
+    }
+  })();
+</script>
+<!-- Removed: duplicate window.ASTERIX reassignment that lived here. It
+     replaced the whole object (dropping anything set on it in between)
+     and referenced a template variable that was never actually provided
+     by any context processor, so VAPID_PUBLIC_KEY was always empty here
+     anyway. partials/pwa_scripts.html below sets CSRF + VAPID_PUBLIC_KEY
+     the same way but merges instead of overwriting, with the variable
+     that's actually wired up. -->
+  {% include 'partials/pwa_scripts.html' %}
+
+
+<script src="{% static 'chat/asterix_videos/videos_badge.js' %}" defer></script>
+<script src="{% static 'chat/logout_csrf.js' %}" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="{% static 'js/modules/media_viewer.js' %}" defer></script>
+<script src="{% static 'js/modules/pwa_install.js' %}" defer></script>
+<script src="{% static 'js/modules/app_update.js' %}" defer></script>
+<script src="{% static 'js/modules/contact_form.js' %}" defer></script>
+</body>
+</html>

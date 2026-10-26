@@ -1,13 +1,10 @@
 // ============================================================
 // status.js — Status upload, viewer, and My Status panel
-// (with commerce, multi‑image carousel, watermarking,
-//  play/pause button, grid-cell selection → interest sheet)
 // ============================================================
 
 (function () {
   'use strict';
 
-  // ── DOM refs ─────────────────────────────────────────────────────────
   var dom = {
     statusHub:             document.getElementById('status-hub'),
     myStatusOverlay:       document.getElementById('my-status-overlay'),
@@ -75,38 +72,14 @@
     svActionContainer:     document.getElementById('sv-action-container'),
   };
 
-  // ── Category constants ────────────────────────────────────────────
-  var SV_CATEGORIES = window.SV_CATEGORIES || [
-    'General', 'Funerals', 'Weddings', 'Market', 'Church'
-  ];
-  var SV_CAT_ICONS = window.SV_CAT_ICONS || {
-    General:  '🌐',
-    Funerals: '🕊️',
-    Weddings: '💍',
-    Market:   '🛒',
-    Church:   '⛪',
-  };
-  var CAT_DISPLAY_NAMES = {
-    'Funerals': 'Tributes',
-    'Weddings': 'Celebrations',
-    'Church':   'Spiritual',
-  };
-  function catLabel(cat) {
-    return CAT_DISPLAY_NAMES[cat] || cat;
-  }
+  var SV_CATEGORIES = window.SV_CATEGORIES || ['General', 'Funerals', 'Weddings', 'Market', 'Church'];
+  var SV_CAT_ICONS = window.SV_CAT_ICONS || { General: '🌐', Funerals: '🕊️', Weddings: '💍', Market: '🛒', Church: '⛪' };
+  var CAT_DISPLAY_NAMES = { 'Funerals': 'Tributes', 'Weddings': 'Celebrations', 'Church': 'Spiritual' };
 
-  // ── Viewer state ──────────────────────────────────────────────────
+  function catLabel(cat) { return CAT_DISPLAY_NAMES[cat] || cat; }
+
   var viewer = {
-    playlist:        [],
-    idx:             0,
-    timer:           null,
-    duration:        5000,
-    currentCategory: null,
-    segFill:         null,
-    isPaused:        false,
-    pausedAt:        null,
-    isVideo:         false,
-    videoElement:    null,
+    playlist: [], idx: 0, timer: null, duration: 5000, currentCategory: null, segFill: null, isPaused: false, pausedAt: null, isVideo: false, videoElement: null,
   };
 
   var offerTargetStatusId   = null;
@@ -115,80 +88,102 @@
   var ctTimer               = null;
   var _buyContext           = null;
   var endScreenActive       = false;
-
-  // ── Multi-image upload state ──────────────────────────────────────
   var MAX_STATUS_MEDIA  = 10;
   var uploadSelectedFiles = [];
-
-  // ── Pause/play button reference ───────────────────────────────────
   var _pauseBtn = null;
 
-  // ─────────────────────────────────────────────────────────────────
-  // ONE-TIME CSS injections (grid selection ring + pause button styles
-  //  + replay button style)
-  // ─────────────────────────────────────────────────────────────────
+  // ── OFFLINE VIEW QUEUE (SAFE) ───────────────────────────────────────
+  function recordStatusViewWithOfflineSupport(statusId) {
+    if (!statusId) return;
+    try {
+      if (navigator.onLine && window.API && typeof window.API.recordStatusView === 'function') {
+        window.API.recordStatusView(statusId).catch(function() {
+          queueOfflineView(statusId);
+        });
+      } else {
+        queueOfflineView(statusId);
+      }
+    } catch(e) {
+      console.warn('Could not record view (safely skipped):', e);
+      queueOfflineView(statusId);
+    }
+  }
+
+  function queueOfflineView(statusId) {
+    try {
+      var queue = JSON.parse(localStorage.getItem('asterix_pending_status_views') || '[]');
+      if (queue.indexOf(statusId) === -1) {
+        queue.push(statusId);
+        localStorage.setItem('asterix_pending_status_views', JSON.stringify(queue));
+      }
+    } catch(e) {}
+  }
+
+  function flushOfflineViews() {
+    if (!navigator.onLine) return;
+    try {
+      var queue = JSON.parse(localStorage.getItem('asterix_pending_status_views') || '[]');
+      if (!queue.length) return;
+
+      localStorage.removeItem('asterix_pending_status_views');
+
+      queue.forEach(function(statusId) {
+        if (window.API && typeof window.API.recordStatusView === 'function') {
+          window.API.recordStatusView(statusId).catch(function(err) {
+            console.warn('Failed to flush view', statusId, err);
+          });
+        }
+      });
+    } catch(e) {}
+  }
+
+  window.addEventListener('online', flushOfflineViews);
+
   (function _injectGridStyles() {
     if (document.getElementById('sv-grid-sel-style')) return;
     var s = document.createElement('style');
     s.id  = 'sv-grid-sel-style';
     s.textContent = [
-      /* Selected cell — gold outline */
-      '.sv-market-grid-cell.sv-grid-selected{',
-      '  outline:3px solid #e6a817;outline-offset:-3px;',
-      '  z-index:2;position:relative;',
-      '}',
-      /* Gold check badge */
-      '.sv-grid-sel-badge{',
-      '  position:absolute;top:6px;right:6px;',
-      '  width:22px;height:22px;border-radius:50%;',
-      '  background:#e6a817;color:#000;',
-      '  font-size:13px;font-weight:900;',
-      '  display:flex;align-items:center;justify-content:center;',
-      '  box-shadow:0 2px 6px rgba(0,0,0,0.5);',
-      '  z-index:3;pointer-events:none;',
-      '}',
-      /* Tap-hint label that floats below grid */
-      '.sv-grid-tap-hint{',
-      '  position:absolute;bottom:8px;left:50%;',
-      '  transform:translateX(-50%);',
-      '  background:rgba(0,0,0,0.65);color:#fff;',
-      '  font-size:11px;font-weight:600;',
-      '  padding:4px 12px;border-radius:20px;',
-      '  pointer-events:none;white-space:nowrap;',
-      '  z-index:4;letter-spacing:.3px;',
-      '}',
-      /* Pause button */
-      '#sv-pause-btn{',
-      '  position:absolute;bottom:70px;left:16px;z-index:15;',
-      '  background:rgba(0,0,0,0.5);border:none;border-radius:50%;',
-      '  width:40px;height:40px;color:#fff;font-size:20px;',
-      '  cursor:pointer;display:none;backdrop-filter:blur(4px);',
-      '  transition:background .2s;',
-      '  display:flex;align-items:center;justify-content:center;',
-      '}',
-      '#sv-pause-btn:hover{background:rgba(0,0,0,0.75);}',
-      /* Replay button — matches the existing .sv-cat-end-btn style but
-         uses the accent gold so it reads as the primary action among the
-         three buttons when you reach an end screen. */
-      '#sv-cat-replay-btn{',
-      '  display:inline-flex;align-items:center;gap:6px;',
-      '  background:rgba(230,168,23,0.15);',
-      '  border:1px solid rgba(230,168,23,0.4);',
-      '  border-radius:24px;',
-      '  padding:10px 20px;',
-      '  font-size:14px;font-weight:700;color:#e6a817;',
-      '  cursor:pointer;transition:background .15s, transform .1s;',
-      '}',
-      '#sv-cat-replay-btn:hover{',
-      '  background:rgba(230,168,23,0.28);transform:scale(1.03);',
-      '}',
+      '.sv-market-grid-cell.sv-grid-selected{ outline:3px solid #e6a817; outline-offset:-3px; z-index:2; position:relative;}',
+      '.sv-grid-sel-badge{ position:absolute; top:6px; right:6px; width:22px; height:22px; border-radius:50%; background:#e6a817; color:#000; font-size:13px; font-weight:900; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.5); z-index:3; pointer-events:none;}',
+      '.sv-grid-tap-hint{ position:absolute; bottom:8px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.65); color:#fff; font-size:11px; font-weight:600; padding:4px 12px; border-radius:20px; pointer-events:none; white-space:nowrap; z-index:4; letter-spacing:.3px;}',
+      '#sv-pause-btn{ position:absolute; bottom:70px; left:16px; z-index:15; background:rgba(0,0,0,0.5); border:none; border-radius:50%; width:40px; height:40px; color:#fff; font-size:20px; cursor:pointer; display:none; backdrop-filter:blur(4px); transition:background .2s; display:flex; align-items:center; justify-content:center;}',
+      '#sv-pause-btn:hover{ background:rgba(0,0,0,0.75);}',
+      '#sv-cat-replay-btn{ display:inline-flex; align-items:center; gap:6px; background:rgba(230,168,23,0.15); border:1px solid rgba(230,168,23,0.4); border-radius:24px; padding:10px 20px; font-size:14px; font-weight:700; color:#e6a817; cursor:pointer; transition:background .15s, transform .1s;}',
+      '#sv-cat-replay-btn:hover{ background:rgba(230,168,23,0.28); transform:scale(1.03);}',
     ].join('');
     document.head.appendChild(s);
   })();
 
-  // ─────────────────────────────────────────────────────────────────
-  // SEGMENT HELPERS
-  // ─────────────────────────────────────────────────────────────────
+  function updateStatusBadges() {
+    fetch('/api/status/unread-counts/')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var counts = data.counts || {};
+        var categories = ['General', 'Funerals', 'Weddings', 'Market', 'Church'];
+
+        categories.forEach(function(cat) {
+          var badge = document.getElementById('badge-' + cat);
+          var ring = document.getElementById('ring-' + cat);
+
+          if (!badge || !ring) return;
+
+          var count = counts[cat] || 0;
+
+          if (count > 0) {
+            badge.textContent = count;
+            badge.classList.add('show');
+            ring.classList.add('unread');
+          } else {
+            badge.textContent = '';
+            badge.classList.remove('show');
+            ring.classList.remove('unread');
+          }
+        });
+      })
+      .catch(function(e) { console.warn('Could not fetch status badges:', e); });
+  }
+
   function buildSegments(count) {
     dom.svSegments.innerHTML = '';
     for (var i = 0; i < count; i++) {
@@ -222,9 +217,6 @@
     viewer.timer = setTimeout(onDone, duration);
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // PAUSE / RESUME / TOGGLE
-  // ─────────────────────────────────────────────────────────────────
   function pauseViewer() {
     if (viewer.isPaused) return;
     viewer.isPaused = true;
@@ -266,15 +258,10 @@
 
   function _syncPauseBtn() {
     if (!_pauseBtn) return;
-    _pauseBtn.innerHTML = viewer.isPaused
-      ? '<i class="fas fa-play"></i>'
-      : '<i class="fas fa-pause"></i>';
+    _pauseBtn.innerHTML = viewer.isPaused ? '<i class="fas fa-play"></i>' : '<i class="fas fa-pause"></i>';
     _pauseBtn.title = viewer.isPaused ? 'Resume' : 'Pause';
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // CREATE PAUSE BUTTON (injected once into the viewer)
-  // ─────────────────────────────────────────────────────────────────
   function createPauseButton() {
     if (_pauseBtn) { _pauseBtn.style.display = 'flex'; _syncPauseBtn(); return; }
 
@@ -283,11 +270,7 @@
     btn.innerHTML = '<i class="fas fa-pause"></i>';
     btn.title = 'Pause';
     btn.setAttribute('aria-label', 'Pause / Resume');
-
-    btn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      togglePause();
-    });
+    btn.addEventListener('click', function (e) { e.stopPropagation(); togglePause(); });
 
     var mediaWrap = dom.viewerModal.querySelector('.sv-media-wrap') || dom.viewerModal;
     mediaWrap.appendChild(btn);
@@ -295,9 +278,6 @@
     _syncPauseBtn();
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // RESET VIEWER
-  // ─────────────────────────────────────────────────────────────────
   function resetViewer() {
     clearTimeout(viewer.timer);
     dom.svVid.pause();
@@ -331,21 +311,13 @@
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // REPLAY CURRENT CATEGORY
-  // Re-fetches the feed (picks up any new posts), resets segments,
-  // and starts playback from the first item again.
-  // ─────────────────────────────────────────────────────────────────
   function replayCurrentCategory() {
     var category = viewer.currentCategory;
     if (!category) return;
 
-    // Hide the end screen before doing anything else
     dom.svCatEnd.classList.remove('show');
     endScreenActive = false;
 
-    // Show the category transition banner so the user gets visual
-    // feedback that something is happening even if the fetch is fast.
     var ct   = dom.svCategoryTransition;
     var icon = dom.svCtIcon;
     var name = dom.svCtName;
@@ -362,7 +334,6 @@
         if (!res.ok) throw new Error(res.data.error || 'Feed error');
         viewer.playlist = res.data.playlist || [];
         if (!viewer.playlist.length) {
-          // Nothing to replay — tell the user and close gracefully.
           toast('No statuses', 'No active ' + catLabel(category) + ' statuses right now.');
           closeViewer();
           return;
@@ -377,9 +348,6 @@
       });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // OPEN CHAT WITH USER
-  // ─────────────────────────────────────────────────────────────────
   function openChatWithUser(username, profilePicture) {
     closeViewer();
     if (window.Asterix && window.Asterix.chat) {
@@ -392,9 +360,6 @@
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // OFFER MODAL
-  // ─────────────────────────────────────────────────────────────────
   function openOfferModal(statusId) {
     var id = parseInt(statusId, 10);
     if (isNaN(id) || id <= 0) { toast('Error', 'Invalid status ID.'); return; }
@@ -450,9 +415,6 @@
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // COUNTER OFFER MODAL
-  // ─────────────────────────────────────────────────────────────────
   function openCounterOfferModal(offerId, currentAmount) {
     var id = parseInt(offerId, 10);
     if (isNaN(id) || id <= 0) { toast('Error', 'Invalid offer ID.'); return; }
@@ -500,9 +462,6 @@
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // BUY NOW MODAL
-  // ─────────────────────────────────────────────────────────────────
   function openBuyModal(statusId, price, title, mediaUrl, sellerUsername) {
     var id = parseInt(statusId, 10);
     if (isNaN(id) || id <= 0) { toast('Error', 'Invalid listing.'); return; }
@@ -601,9 +560,6 @@
       });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // COMMERCE BAR
-  // ─────────────────────────────────────────────────────────────────
   function updateCommerceBar(status) {
     if (!dom.svCommerceBar || !status || !status.is_commercial) {
       if (dom.svCommerceBar) dom.svCommerceBar.style.display = 'none';
@@ -611,7 +567,8 @@
     }
     dom.svCommerceBar.style.display = 'block';
     dom.svPriceBadge.textContent    = status.price ? 'K' + parseFloat(status.price).toLocaleString() : 'Price not set';
-    var avail        = status.availability || 'available';
+    var qty = (status.quantity !== undefined) ? status.quantity : 1;
+    var avail = (qty > 0 && status.availability === 'sold') ? 'available' : (status.availability || 'available');
     var availColors  = { available: '#25d366', reserved: '#ffc107', sold: '#f15c6d' };
     dom.svAvailBadge.textContent    = avail.toUpperCase();
     dom.svAvailBadge.style.color    = availColors[avail] || '#fff';
@@ -643,22 +600,12 @@
       var intBtn = document.createElement('button');
       intBtn.id = 'sv-interest-btn';
       intBtn.textContent = '💬 I\'m Interested';
-      intBtn.style.cssText = [
-        'background:linear-gradient(135deg,#25d366,#128c7e);',
-        'border:none;border-radius:20px;padding:7px 18px;',
-        'font-size:13px;font-weight:700;color:#fff;cursor:pointer;',
-        'box-shadow:0 2px 8px rgba(0,0,0,0.3);transition:opacity .15s;'
-      ].join('');
+      intBtn.style.cssText = 'background:linear-gradient(135deg,#25d366,#128c7e);border:none;border-radius:20px;padding:7px 18px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3);transition:opacity .15s;';
       intBtn.onclick = function () { openInterestSheet(status, null); };
       dom.svActionContainer.appendChild(intBtn);
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // INTEREST SHEET — accepts optional selectedMedia
-  // { url, caption, index, total }
-  // When null → whole-listing behaviour (original)
-  // ─────────────────────────────────────────────────────────────────
   function openInterestSheet(status, selectedMedia) {
     pauseViewer();
 
@@ -667,74 +614,43 @@
 
     overlay = document.createElement('div');
     overlay.id = 'sv-interest-overlay';
-    overlay.style.cssText = [
-      'position:absolute;inset:0;z-index:20;',
-      'display:flex;flex-direction:column;justify-content:flex-end;',
-      'background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);',
-      'animation:fadeInSheet .18s ease;'
-    ].join('');
+    overlay.style.cssText = 'position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);animation:fadeInSheet .18s ease;';
 
     var sheet = document.createElement('div');
-    sheet.style.cssText = [
-      'background:var(--card,#1e1e1e);border-radius:20px 20px 0 0;',
-      'padding:20px 18px 28px;animation:slideUpSheet .2s ease;'
-    ].join('');
+    sheet.style.cssText = 'background:var(--card,#1e1e1e);border-radius:20px 20px 0 0;padding:20px 18px 28px;animation:slideUpSheet .2s ease;';
 
     if (!document.getElementById('sv-sheet-style')) {
       var sty = document.createElement('style');
       sty.id = 'sv-sheet-style';
-      sty.textContent = [
-        '@keyframes fadeInSheet{from{opacity:0}to{opacity:1}}',
-        '@keyframes slideUpSheet{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}'
-      ].join('');
+      sty.textContent = '@keyframes fadeInSheet{from{opacity:0}to{opacity:1}}@keyframes slideUpSheet{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}';
       document.head.appendChild(sty);
     }
 
     var hasSelected = !!(selectedMedia && selectedMedia.url);
 
-    // ── Pill ─────────────────────────────────────────────────────
     var pill = document.createElement('div');
-    pill.style.cssText = [
-      'border-radius:12px;padding:10px 14px;margin-bottom:16px;',
-      'display:flex;align-items:center;gap:10px;',
-      'border:1px solid rgba(255,255,255,0.08);'
-    ].join('');
+    pill.style.cssText = 'border-radius:12px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,0.08);' + (hasSelected ? 'background:rgba(230,168,23,0.08);border-color:rgba(230,168,23,0.2);' : 'background:rgba(255,255,255,0.05);');
 
     if (hasSelected) {
-      pill.style.background   = 'rgba(230,168,23,0.08)';
-      pill.style.borderColor  = 'rgba(230,168,23,0.2)';
-
       var selThumb = document.createElement('div');
-      selThumb.style.cssText = [
-        'width:56px;height:56px;border-radius:10px;overflow:hidden;flex-shrink:0;',
-        'background:var(--mid,#2a2f2f);border:2px solid #e6a817;'
-      ].join('');
+      selThumb.style.cssText = 'width:56px;height:56px;border-radius:10px;overflow:hidden;flex-shrink:0;background:var(--mid,#2a2f2f);border:2px solid #e6a817;';
       var selImg = document.createElement('img');
       selImg.src = selectedMedia.url;
       selImg.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      selImg.onerror = function () {
-        selThumb.innerHTML = '<span style="font-size:22px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">🏷️</span>';
-      };
+      selImg.onerror = function () { selThumb.innerHTML = '<span style="font-size:22px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">🏷️</span>'; };
       selThumb.appendChild(selImg);
       pill.appendChild(selThumb);
 
       var selInfo = document.createElement('div');
       selInfo.style.cssText = 'flex:1;min-width:0;';
-
       var photoLabel = document.createElement('div');
       photoLabel.style.cssText = 'font-size:10px;color:#e6a817;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;';
       photoLabel.textContent   = 'Photo ' + (selectedMedia.index + 1) + ' of ' + selectedMedia.total + ' selected';
-
       var selCaption = document.createElement('div');
       selCaption.style.cssText = 'font-size:13px;font-weight:700;color:var(--text,#fff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
       selCaption.textContent   = (selectedMedia.caption || status.caption || 'Listing').slice(0, 55);
-
-      selInfo.appendChild(photoLabel);
-      selInfo.appendChild(selCaption);
-
-      var priceText = status.price
-        ? 'K' + parseFloat(status.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 })
-        : '';
+      selInfo.appendChild(photoLabel); selInfo.appendChild(selCaption);
+      var priceText = status.price ? 'K' + parseFloat(status.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 }) : '';
       if (priceText) {
         var selPrice = document.createElement('div');
         selPrice.style.cssText = 'font-size:12px;color:#e6a817;font-weight:600;margin-top:2px;';
@@ -742,21 +658,13 @@
         selInfo.appendChild(selPrice);
       }
       pill.appendChild(selInfo);
-
     } else {
-      pill.style.background = 'rgba(255,255,255,0.05)';
       var iconSpan = document.createElement('span');
-      iconSpan.style.cssText = 'font-size:20px;flex-shrink:0;';
-      iconSpan.textContent   = '🏷️';
+      iconSpan.style.cssText = 'font-size:20px;flex-shrink:0;'; iconSpan.textContent = '🏷️';
       var pillInfo = document.createElement('div');
       var pt = status.price ? 'K' + parseFloat(status.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 }) : '';
-      pillInfo.innerHTML = [
-        '<div style="font-size:13px;font-weight:700;color:var(--text,#fff);">' +
-          (status.caption ? status.caption.slice(0, 60) : 'Listing') + '</div>',
-        pt ? '<div style="font-size:12px;color:#e6a817;font-weight:600;">' + pt + (status.is_negotiable ? ' · negotiable' : '') + '</div>' : ''
-      ].join('');
-      pill.appendChild(iconSpan);
-      pill.appendChild(pillInfo);
+      pillInfo.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--text,#fff);">' + (status.caption ? status.caption.slice(0, 60) : 'Listing') + '</div>' + (pt ? '<div style="font-size:12px;color:#e6a817;font-weight:600;">' + pt + (status.is_negotiable ? ' · negotiable' : '') + '</div>' : '');
+      pill.appendChild(iconSpan); pill.appendChild(pillInfo);
     }
     sheet.appendChild(pill);
 
@@ -770,83 +678,38 @@
 
     function sheetRow(icon, label, sub, accent, onClick) {
       var row = document.createElement('button');
-      row.style.cssText = [
-        'display:flex;align-items:center;gap:14px;',
-        'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);',
-        'border-radius:14px;padding:13px 16px;cursor:pointer;text-align:left;',
-        'transition:background .15s;width:100%;'
-      ].join('');
-      row.onmouseover = function () { row.style.background = 'rgba(255,255,255,0.1)'; };
-      row.onmouseout  = function () { row.style.background = 'rgba(255,255,255,0.05)'; };
-      row.innerHTML = [
-        '<span style="font-size:22px;flex-shrink:0;">' + icon + '</span>',
-        '<div style="flex:1;">',
-        '  <div style="font-size:14px;font-weight:700;color:' + accent + ';">' + label + '</div>',
-        '  <div style="font-size:11px;color:var(--sub,#aaa);margin-top:2px;">' + sub + '</div>',
-        '</div>',
-        '<i class="fas fa-chevron-right" style="color:rgba(255,255,255,0.25);font-size:11px;"></i>'
-      ].join('');
+      row.style.cssText = 'display:flex;align-items:center;gap:14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:13px 16px;cursor:pointer;text-align:left;transition:background .15s;width:100%;';
+      row.innerHTML = '<span style="font-size:22px;flex-shrink:0;">' + icon + '</span><div style="flex:1;"><div style="font-size:14px;font-weight:700;color:' + accent + ';">' + label + '</div><div style="font-size:11px;color:var(--sub,#aaa);margin-top:2px;">' + sub + '</div></div><i class="fas fa-chevron-right" style="color:rgba(255,255,255,0.25);font-size:11px;"></i>';
       row.onclick = onClick;
       return row;
     }
 
-        rows.appendChild(sheetRow(
-      '💬', 'Ask the Seller',
-      'Send a quick message — free to negotiate in chat',
-      'var(--text,#fff)',
-      function () {
-        var item = viewer.playlist[viewer.idx];
-        if (!item) return;
-        _closeInterestSheetAndClearGrid();
-        _sendEnquiryAndNavigate(item, selectedMedia);  // ← pass selectedMedia
-      }
-    ));
+    rows.appendChild(sheetRow('💬', 'Ask the Seller', 'Send a quick message — free to negotiate in chat', 'var(--text,#fff)', function () {
+      var item = viewer.playlist[viewer.idx];
+      if (!item) return;
+      _closeInterestSheetAndClearGrid();
+      _sendEnquiryAndNavigate(item, selectedMedia);
+    }));
 
-        if (status.is_negotiable) {
-      rows.appendChild(sheetRow(
-        '🤝', 'Make an Offer',
-        'Propose your price — the seller can accept or counter',
-        '#e6a817',
-        function () {
-          var item = viewer.playlist[viewer.idx];
-          _closeInterestSheetAndClearGrid();
-          if (window.Asterix && window.Asterix.negotiate) {
-            window.Asterix.negotiate.openBargainSheet(
-              item,          // full listing object from playlist
-              null,          // no existing offer
-              selectedMedia, // selected photo (or null)
-              'offer',
-              null
-            );
-          } else {
-            // fallback if negotiate.js not loaded
-            openOfferModal(status.status_id);
-          }
+    if (status.is_negotiable) {
+      rows.appendChild(sheetRow('🤝', 'Make an Offer', 'Propose your price — the seller can accept or counter', '#e6a817', function () {
+        var item = viewer.playlist[viewer.idx];
+        _closeInterestSheetAndClearGrid();
+        if (window.Asterix && window.Asterix.negotiate) {
+          window.Asterix.negotiate.openBargainSheet(item, null, selectedMedia, 'offer', null);
+        } else {
+          openOfferModal(status.status_id);
         }
-      ));
+      }));
     }
 
-    rows.appendChild(sheetRow(
-      '🛒', 'Buy Now',
-      status.price
-        ? 'Purchase at K' + parseFloat(status.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 })
-        : 'Purchase at listed price',
-      '#25d366',
-      function () {
-        var item = viewer.playlist[viewer.idx];
-        _closeInterestSheetAndClearGrid();
-        openBuyModal(
-          status.status_id,
-          status.price,
-          status.caption || 'Item',
-          (hasSelected ? selectedMedia.url : null) || (item && item.media_url),
-          item && item.username
-        );
-      }
-    ));
+    rows.appendChild(sheetRow('🛒', 'Buy Now', status.price ? 'Purchase at K' + parseFloat(status.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 }) : 'Purchase at listed price', '#25d366', function () {
+      var item = viewer.playlist[viewer.idx];
+      _closeInterestSheetAndClearGrid();
+      window.Asterix.checkout.open(_statusToListing(status), selectedMedia, function () {});
+    }));
 
     sheet.appendChild(rows);
-
     var cancelBtn = document.createElement('button');
     cancelBtn.style.cssText = 'width:100%;margin-top:16px;background:transparent;border:none;color:var(--sub,#aaa);font-size:13px;padding:8px;cursor:pointer;';
     cancelBtn.textContent   = 'Cancel';
@@ -854,17 +717,12 @@
     sheet.appendChild(cancelBtn);
 
     overlay.appendChild(sheet);
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) { _closeInterestSheetAndClearGrid(); resumeViewer(); }
-    });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) { _closeInterestSheetAndClearGrid(); resumeViewer(); } });
 
     var svModal = document.getElementById('status-viewer-modal');
     if (svModal) svModal.appendChild(overlay);
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // CLOSE INTEREST SHEET + CLEAR GRID SELECTION RING
-  // ─────────────────────────────────────────────────────────────────
   function _closeInterestSheetAndClearGrid() {
     var overlay = document.getElementById('sv-interest-overlay');
     if (overlay) overlay.remove();
@@ -872,13 +730,8 @@
     if (grid && typeof grid._clearSelection === 'function') grid._clearSelection();
   }
 
-  function closeInterestSheet() {
-    _closeInterestSheetAndClearGrid();
-  }
+  function closeInterestSheet() { _closeInterestSheetAndClearGrid(); }
 
-  // ─────────────────────────────────────────────────────────────────
-  // ENQUIRY HELPER
-  // ─────────────────────────────────────────────────────────────────
   function _sendEnquiryAndNavigate(item, selectedMedia) {
     if (!item) return;
     var targetUser = item.username;
@@ -887,16 +740,9 @@
     var intBtn = document.getElementById('sv-interest-btn');
     if (intBtn) { intBtn.disabled = true; intBtn.textContent = '⏳ Opening chat…'; }
 
-    var priceText = item.price
-      ? 'K' + parseFloat(item.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 })
-      : '';
-    var quoteLine = '> 🏷️ Listing' +
-      (item.caption ? ': ' + item.caption.slice(0, 60) : '') +
-      (priceText ? ' — ' + priceText : '');
-    // If a specific grid photo was selected, note it in the message
-    var photoNote = (selectedMedia && selectedMedia.index !== undefined)
-      ? '\n> 📸 Photo ' + (selectedMedia.index + 1) + ' of ' + selectedMedia.total
-      : '';
+    var priceText = item.price ? 'K' + parseFloat(item.price).toLocaleString('en-ZM', { minimumFractionDigits: 2 }) : '';
+    var quoteLine = '>️ Listing' + (item.caption ? ': ' + item.caption.slice(0, 60) : '') + (priceText ? ' — ' + priceText : '');
+    var photoNote = (selectedMedia && selectedMedia.index !== undefined) ? '\n> ' + (selectedMedia.index + 1) + ' of ' + selectedMedia.total : '';
     var messageText = quoteLine + photoNote + '\n\n' + "Hi, I'm interested in your listing. Can you tell me more?";
 
     var fd = new FormData();
@@ -905,43 +751,35 @@
     fd.append('is_status_reply', 'true');
     if (item.status_id) fd.append('status_id', item.status_id);
 
-    // Use the selected photo URL, falling back to the listing's primary media
     var mediaUrl = (selectedMedia && selectedMedia.url) ? selectedMedia.url : item.media_url;
 
     function finishSend() {
-      API.sendMessage(fd)
-        .then(function (res) {
-          if (res.ok && res.data.status === 'success') {
-            openChatWithUser(targetUser, item.profile_picture);
-          } else {
-            toast('Error', res.data.message || 'Could not send enquiry.');
-            if (intBtn) { intBtn.disabled = false; intBtn.textContent = '💬 I\'m Interested'; }
-            resumeViewer();
-          }
-        })
-        .catch(function () {
-          toast('Error', 'Could not send enquiry. Please try again.');
+      API.sendMessage(fd).then(function (res) {
+        if (res.ok && res.data.status === 'success') {
+          openChatWithUser(targetUser, item.profile_picture);
+        } else {
+          toast('Error', res.data.message || 'Could not send enquiry.');
           if (intBtn) { intBtn.disabled = false; intBtn.textContent = '💬 I\'m Interested'; }
           resumeViewer();
-        });
+        }
+      }).catch(function () {
+        toast('Error', 'Could not send enquiry. Please try again.');
+        if (intBtn) { intBtn.disabled = false; intBtn.textContent = '💬 I\'m Interested'; }
+        resumeViewer();
+      });
     }
 
-        if (mediaUrl) {
-      fetchStatusMediaAsBlob(mediaUrl)
-        .then(function (blob) {
-          var filename = mediaUrl.split('/').pop().split('?')[0] || 'listing.jpg';
-          fd.append('files', blob, filename);
-          finishSend();
-        })
-        .catch(finishSend);
+    if (mediaUrl) {
+      fetchStatusMediaAsBlob(mediaUrl).then(function (blob) {
+        var filename = mediaUrl.split('/').pop().split('?')[0] || 'listing.jpg';
+        fd.append('files', blob, filename);
+        finishSend();
+      }).catch(finishSend);
     } else {
       finishSend();
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // STATUS REPLY WITH MEDIA
-  // ─────────────────────────────────────────────────────────────────
   function sendStatusReply(text) {
     if (!viewer.playlist.length) return;
     var statusObj = viewer.playlist[viewer.idx];
@@ -963,54 +801,44 @@
     if (statusObj.status_id) fd.append('status_id', statusObj.status_id);
 
     if (mediaUrl) {
-      fetchStatusMediaAsBlob(mediaUrl)
-        .then(function (blob) {
-          var filename = mediaUrl.split('/').pop().split('?')[0] || 'media';
-          fd.append('files', blob, filename);
-          return API.sendMessage(fd);
-        })
-        .then(function (res) {
+      fetchStatusMediaAsBlob(mediaUrl).then(function (blob) {
+        var filename = mediaUrl.split('/').pop().split('?')[0] || 'media';
+        fd.append('files', blob, filename);
+        return API.sendMessage(fd);
+      }).then(function (res) {
+        if (res.ok && res.data.status === 'success') {
+          toast('Replied to ' + sender + '\'s status', '✓ Sent');
+          dom.svReplyInput.value = '';
+          if (State.activeRecipient === targetUser && window.Asterix && window.Asterix.chat) {
+            window.Asterix.chat.loadMessages(State.activeRecipient);
+          }
+        } else { toast('Error', res.data.message || 'Failed to send reply'); }
+      }).catch(function () {
+        API.sendMessage(fd).then(function (res) {
           if (res.ok && res.data.status === 'success') {
-            toast('Replied to ' + sender + '\'s status', '✓ Sent');
-            dom.svReplyInput.value = '';
-            if (State.activeRecipient === targetUser && window.Asterix && window.Asterix.chat) {
-              window.Asterix.chat.loadMessages(State.activeRecipient);
-            }
-          } else { toast('Error', res.data.message || 'Failed to send reply'); }
-        })
-        .catch(function () {
-          API.sendMessage(fd)
-            .then(function (res) {
-              if (res.ok && res.data.status === 'success') {
-                toast('Replied (without media)', '✓ Sent'); dom.svReplyInput.value = '';
-              } else { toast('Error', 'Failed to send reply'); }
-            });
+            toast('Replied (without media)', '✓ Sent'); dom.svReplyInput.value = '';
+          } else { toast('Error', 'Failed to send reply'); }
         });
+      });
     } else {
-      API.sendMessage(fd)
-        .then(function (res) {
-          if (res.ok && res.data.status === 'success') {
-            toast('Replied to ' + sender + '\'s status', '✓ Sent'); dom.svReplyInput.value = '';
-            if (State.activeRecipient === targetUser && window.Asterix && window.Asterix.chat) {
-              window.Asterix.chat.loadMessages(State.activeRecipient);
-            }
-          } else { toast('Error', res.data.message || 'Failed to send reply'); }
-        })
-        .catch(function () { toast('Error', 'Failed to send reply'); });
+      API.sendMessage(fd).then(function (res) {
+        if (res.ok && res.data.status === 'success') {
+          toast('Replied to ' + sender + '\'s status', '✓ Sent'); dom.svReplyInput.value = '';
+          if (State.activeRecipient === targetUser && window.Asterix && window.Asterix.chat) {
+            window.Asterix.chat.loadMessages(State.activeRecipient);
+          }
+        } else { toast('Error', res.data.message || 'Failed to send reply'); }
+      }).catch(function () { toast('Error', 'Failed to send reply'); });
     }
   }
 
   function fetchStatusMediaAsBlob(url) {
-    return fetch('/api/status/proxy-media/?url=' + encodeURIComponent(url))
-      .then(function (r) {
-        if (!r.ok) throw new Error('Failed to fetch media');
-        return r.blob();
-      });
+    return fetch('/api/status/proxy-media/?url=' + encodeURIComponent(url)).then(function (r) {
+      if (!r.ok) throw new Error('Failed to fetch media');
+      return r.blob();
+    });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // SWIPEABLE CAROUSEL (reusable)
-  // ─────────────────────────────────────────────────────────────────
   function _createSwipeCarousel(mediaList, startIndex) {
     var wrapper  = document.createElement('div');
     wrapper.className = 'sv-carousel';
@@ -1040,9 +868,7 @@
       var dot = document.createElement('span');
       dot.className = 'sv-carousel-dot' + (index === currentIndex ? ' active' : '');
       dot.dataset.index = index;
-      dot.addEventListener('click', function (e) {
-        e.stopPropagation(); goToSlide(parseInt(this.dataset.index, 10));
-      });
+      dot.addEventListener('click', function (e) { e.stopPropagation(); goToSlide(parseInt(this.dataset.index, 10)); });
       dotsContainer.appendChild(dot);
     });
 
@@ -1051,9 +877,7 @@
       if (index >= total) index = 0;
       currentIndex = index;
       track.style.transform = 'translateX(-' + (currentIndex * 100) + '%)';
-      dotsContainer.querySelectorAll('.sv-carousel-dot').forEach(function (d, i) {
-        d.classList.toggle('active', i === currentIndex);
-      });
+      dotsContainer.querySelectorAll('.sv-carousel-dot').forEach(function (d, i) { d.classList.toggle('active', i === currentIndex); });
     }
     goToSlide(currentIndex);
 
@@ -1072,56 +896,30 @@
       if (Math.abs(diff) > 50) goToSlide(currentIndex + (diff > 0 ? 1 : -1));
     }, { passive: true });
 
-    wrapper.appendChild(track);
-    wrapper.appendChild(prevBtn);
-    wrapper.appendChild(nextBtn);
-    wrapper.appendChild(dotsContainer);
+    wrapper.appendChild(track); wrapper.appendChild(prevBtn); wrapper.appendChild(nextBtn); wrapper.appendChild(dotsContainer);
     return { element: wrapper, goToSlide: goToSlide };
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // MARKET GRID STYLES (one-time injection)
-  // ─────────────────────────────────────────────────────────────────
   function _ensureMarketGridStyles() {
     if (document.getElementById('sv-market-grid-style')) return;
     var sty = document.createElement('style');
     sty.id  = 'sv-market-grid-style';
     sty.textContent = [
-      '.sv-market-grid{position:absolute;inset:0;display:grid;',
-      '  grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;',
-      '  gap:2px;background:#000;z-index:6;}',
+      '.sv-market-grid{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;background:#000;z-index:6;}',
       '.sv-market-grid[data-count="1"]{grid-template-columns:1fr;grid-template-rows:1fr;}',
       '.sv-market-grid[data-count="2"]{grid-template-rows:1fr;}',
       '.sv-market-grid[data-count="3"] .sv-market-grid-cell:first-child{grid-row:1/3;}',
-      '.sv-market-grid-cell{position:relative;background-size:cover;',
-      '  background-position:center;cursor:pointer;',
-      '  transition:outline .12s;}',
-      '.sv-grid-play-icon{position:absolute;inset:0;display:flex;',
-      '  align-items:center;justify-content:center;color:#fff;font-size:28px;',
-      '  text-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none;}',
-      '.sv-grid-more-badge{position:absolute;inset:0;background:rgba(0,0,0,.55);',
-      '  color:#fff;font-size:22px;font-weight:800;display:flex;',
-      '  align-items:center;justify-content:center;}',
-      '.sv-grid-tap-dot{',
-      '  position:absolute;top:6px;right:6px;width:22px;height:22px;',
-      '  border-radius:50%;border:2px solid rgba(255,255,255,.8);',
-      '  background:rgba(0,0,0,.3);box-shadow:0 1px 5px rgba(0,0,0,.5);',
-      '  pointer-events:none;z-index:2;',
-      '  animation:svTapPulse 1.8s ease-in-out infinite;',
-      '}',
+      '.sv-market-grid-cell{position:relative;background-size:cover;background-position:center;cursor:pointer;transition:outline .12s;}',
+      '.sv-grid-play-icon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;text-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none;}',
+      '.sv-grid-more-badge{position:absolute;inset:0;background:rgba(0,0,0,.55);color:#fff;font-size:22px;font-weight:800;display:flex;align-items:center;justify-content:center;}',
+      '.sv-grid-tap-dot{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.8);background:rgba(0,0,0,.3);box-shadow:0 1px 5px rgba(0,0,0,.5);pointer-events:none;z-index:2;animation:svTapPulse 1.8s ease-in-out infinite;}',
       '@keyframes svTapPulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.15);opacity:1}}',
       '.sv-market-fullscreen{position:absolute;inset:0;z-index:40;background:#000;}',
-      '.sv-market-fs-close{position:absolute;top:14px;left:14px;z-index:41;',
-      '  width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,.6);',
-      '  border:none;color:#fff;font-size:16px;cursor:pointer;',
-      '  display:flex;align-items:center;justify-content:center;}',
+      '.sv-market-fs-close{position:absolute;top:14px;left:14px;z-index:41;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,.6);border:none;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}',
     ].join('');
     document.head.appendChild(sty);
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // MARKET GRID — tap to select → interest sheet with that photo
-  // ─────────────────────────────────────────────────────────────────
   function buildMarketGrid(mediaWrap, item) {
     _ensureMarketGridStyles();
     var mediaList = item.media_list || [];
@@ -1175,7 +973,7 @@
         playIcon.className = 'fas fa-play-circle sv-grid-play-icon';
         cell.appendChild(playIcon);
       } else {
-        cell.style.backgroundImage = 'url(\'' + media.url.replace(/'/g, '%27') + '\')';
+        cell.innerHTML = '<img src="' + media.url.replace(/'/g, '%27') + '" style="width:100%;height:100%;object-fit:contain;background:#000;">';
       }
 
       var tapDot = document.createElement('div');
@@ -1227,9 +1025,6 @@
     return grid;
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // MARKET FULLSCREEN CAROUSEL
-  // ─────────────────────────────────────────────────────────────────
   function openMarketFullscreenCarousel(mediaList, startIndex) {
     pauseViewer();
     var existing = document.getElementById('sv-market-fullscreen');
@@ -1243,9 +1038,7 @@
     closeBtn.className = 'sv-market-fs-close';
     closeBtn.innerHTML = '<i class="fas fa-arrow-left"></i>';
     closeBtn.setAttribute('aria-label', 'Back');
-    closeBtn.addEventListener('click', function (e) {
-      e.stopPropagation(); overlay.remove(); resumeViewer();
-    });
+    closeBtn.addEventListener('click', function (e) { e.stopPropagation(); overlay.remove(); resumeViewer(); });
 
     var carousel = _createSwipeCarousel(mediaList, startIndex);
     overlay.appendChild(closeBtn);
@@ -1255,13 +1048,14 @@
     if (svModal) svModal.appendChild(overlay);
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // SHOW STATUS
-  // ─────────────────────────────────────────────────────────────────
   function showStatus(idx) {
     viewer.idx = idx;
     var item = viewer.playlist[idx];
     if (!item) { showCategoryEnd(); return; }
+
+    if (item.type !== 'advertisement' && item.username !== State.ME) {
+      recordStatusViewWithOfflineSupport(item.status_id);
+    }
 
     resetViewer();
     createPauseButton();
@@ -1288,13 +1082,24 @@
 
       updateCommerceBar(item);
 
-      if (item.market_link) {
+      if (item.category === 'Market' && item.market_link) {
         dom.svAdLabel.textContent = '🛒 Visit Shop';
         dom.svAdBar.classList.add('show');
         dom.svAdBar.onclick = function () {
           var link = externalLink(item.market_link);
           if (link) window.open(link, '_blank');
         };
+      }
+      else if ((item.category === 'Weddings' || item.category === 'Celebrations') && item.market_link) {
+        dom.svAdLabel.textContent = '💌 View Invitation & RSVP';
+        dom.svAdBar.classList.add('show');
+        dom.svAdBar.onclick = function () {
+          var link = externalLink(item.market_link);
+          if (link) window.open(link, '_blank');
+        };
+      }
+      else {
+        dom.svAdBar.classList.remove('show');
       }
 
       var mediaList    = item.media_list || [];
@@ -1411,15 +1216,27 @@
     renderStatusEmojis(item.category || viewer.currentCategory || 'General');
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // OPEN / CLOSE VIEWER
-  // ─────────────────────────────────────────────────────────────────
   function openViewer(category, skipList, anchorIdx) {
     viewer.currentCategory = category;
     dom.viewerModal.classList.add('open');
     viewer.playlist = []; viewer.idx = 0;
+
+    var cacheKey = 'asterix_status_cache_' + category;
+    var cachedData = localStorage.getItem(cacheKey);
+    var loadedFromCache = false;
+
+    if (cachedData) {
+      try {
+        var parsed = JSON.parse(cachedData);
+        if (Date.now() - parsed.timestamp < 86400000) {
+          viewer.playlist = parsed.playlist || [];
+          loadedFromCache = viewer.playlist.length > 0;
+        }
+      } catch(e) {}
+    }
+
     dom.svSegments.innerHTML = '';
-    dom.svUsername.textContent = 'Loading…';
+    dom.svUsername.textContent = loadedFromCache ? 'Refreshing…' : 'Loading…';
 
     var startIdx = (typeof anchorIdx === 'number') ? anchorIdx : SV_CATEGORIES.indexOf(category);
 
@@ -1436,6 +1253,14 @@
       .then(function (res) {
         if (!res.ok) throw new Error(res.data.error || 'Feed error');
         viewer.playlist = res.data.playlist || [];
+
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({
+            timestamp: Date.now(),
+            playlist: viewer.playlist
+          }));
+        } catch(e) {}
+
         if (!viewer.playlist.length) {
           var skip    = skipList ? skipList.concat([category]) : [category];
           var nextCat = null;
@@ -1443,9 +1268,6 @@
             if (skip.indexOf(SV_CATEGORIES[i]) === -1) { nextCat = SV_CATEGORIES[i]; break; }
           }
           if (nextCat) {
-            // Empty category — show a brief skip banner that now includes
-            // a Replay option so the user can try the same category again
-            // if they think they tapped it accidentally.
             icon.textContent = SV_CAT_ICONS[category] || '🌐';
             name.textContent = catLabel(category) + ' — no new statuses';
             ct.classList.add('show');
@@ -1455,9 +1277,6 @@
               openViewer(nextCat, skip, startIdx);
             }, 900);
 
-            // Inject a small "Stay here / Replay" tap target inside the
-            // transition banner so the user can abort the auto-skip.
-            // We wait one tick so the banner element is definitely visible.
             setTimeout(function () {
               var existing = ct.querySelector('.sv-ct-replay-skip');
               if (existing) existing.remove();
@@ -1473,7 +1292,6 @@
               replaySkip.textContent = '↺ Retry ' + catLabel(category);
               replaySkip.addEventListener('click', function (e) {
                 e.stopPropagation();
-                // Cancel the pending skip timer and retry this category.
                 if (ctTimer) { clearTimeout(ctTimer); ctTimer = null; }
                 ct.classList.remove('show');
                 openViewer(category, skipList, anchorIdx);
@@ -1482,7 +1300,6 @@
             }, 0);
 
           } else {
-            // All categories exhausted — show end screen with replay option.
             showCategoryEnd();
           }
           return;
@@ -1490,7 +1307,15 @@
         buildSegments(viewer.playlist.length);
         showStatus(0);
       })
-      .catch(function () { toast('Error', 'Could not load statuses.'); closeViewer(); });
+      .catch(function () {
+        if (loadedFromCache) {
+          buildSegments(viewer.playlist.length);
+          showStatus(0);
+        } else {
+          toast('Error', 'Could not load statuses.');
+          closeViewer();
+        }
+      });
   }
 
   function closeViewer() {
@@ -1505,18 +1330,11 @@
       if (sidebar) sidebar.classList.remove('hidden');
       if (backBtn) backBtn.style.display = 'none';
     }
+    updateStatusBadges();
   }
 
   window.svClose = closeViewer;
 
-  // ─────────────────────────────────────────────────────────────────
-  // CATEGORY END SCREEN
-  // Shown after the last status in a category (or when all categories
-  // are exhausted).  Now has THREE buttons:
-  //   1. ↺ Replay — re-fetches and loops the current category
-  //   2. Next Category — advances to the next category (when available)
-  //   3. Close — closes the viewer entirely
-  // ─────────────────────────────────────────────────────────────────
   function showCategoryEnd() {
     if (endScreenActive) return;
     endScreenActive = true;
@@ -1529,7 +1347,6 @@
     var curIdx  = SV_CATEGORIES.indexOf(viewer.currentCategory);
     var nextCat = (curIdx >= 0 && curIdx < SV_CATEGORIES.length - 1) ? SV_CATEGORIES[curIdx + 1] : null;
 
-    // ── Next category button ──────────────────────────────────────
     if (nextCat) {
       dom.svCatNextBtn.style.display = 'inline-flex';
       dom.svCatNextBtn.innerHTML     = (SV_CAT_ICONS[nextCat] || '') + ' ' + catLabel(nextCat) + ' <i class="fas fa-arrow-right" style="margin-left:6px;"></i>';
@@ -1542,20 +1359,15 @@
       dom.svCatNextBtn.style.display = 'none';
     }
 
-    // ── Replay button ─────────────────────────────────────────────
-    // Wire up the static #sv-cat-replay-btn that now lives in the HTML.
     if (dom.svCatReplayBtn) {
       dom.svCatReplayBtn.style.display = 'inline-flex';
       dom.svCatReplayBtn.innerHTML =
         '<i class="fas fa-redo" style="margin-right:6px;"></i> Replay ' + catLabel(viewer.currentCategory);
-      // Replace onclick to always target the current category, not a
-      // stale closure from a previous call.
       dom.svCatReplayBtn.onclick = function () {
         replayCurrentCategory();
       };
     }
 
-    // ── Close button ──────────────────────────────────────────────
     if (dom.svCatCloseBtn) {
       dom.svCatCloseBtn.textContent = 'Close';
       dom.svCatCloseBtn.onclick     = function () { closeViewer(); endScreenActive = false; };
@@ -1564,12 +1376,9 @@
     dom.svCatEnd.classList.add('show');
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // EMOJI REACTIONS IN VIEWER
-  // ─────────────────────────────────────────────────────────────────
   function renderStatusEmojis(category) {
     var row    = dom.svEmojiRow;
-    var emojis = ['❤️', '😂', '😮', '😢', '🙏', '🔥', '👍', '👏', '💯', '🎉'];
+    var emojis = ['❤️', '😂', '😮', '😢', '👍', '💯']
     row.innerHTML = emojis.map(function (e) {
       return '<button class="sv-emoji-btn" aria-label="React ' + e + '" data-emoji="' + e + '">' + e + '</button>';
     }).join('');
@@ -1598,9 +1407,6 @@
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // PAUSE ON REPLY FOCUS
-  // ─────────────────────────────────────────────────────────────────
   function setupReplyPause() {
     dom.svReplyInput.addEventListener('focus', pauseViewer);
     dom.svReplyInput.addEventListener('blur', function () {
@@ -1617,14 +1423,16 @@
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // SHARE
-  // ─────────────────────────────────────────────────────────────────
   function shareCurrentStatus() {
     var item = viewer.playlist[viewer.idx];
     if (!item || item.type === 'advertisement') return;
+    var shareUrl = window.location.origin + '/share/listing/' + item.status_id + '/';
     if (navigator.share) {
-      navigator.share({ title: 'Fizz-me Status', text: item.caption || 'Check out this status on Fizz-me! 🇿🇲', url: item.media_url || window.location.href }).catch(function () {});
+      navigator.share({
+        title: 'Fizzme Listing',
+        text: item.caption || 'Check out this listing on Fizzme! 🇿🇲',
+        url: shareUrl
+      }).catch(function () {});
     } else {
       dom.svShareOverlay.classList.add('show');
     }
@@ -1633,9 +1441,6 @@
   function openShareSheet()  { dom.svShareOverlay.classList.add('show'); }
   function closeShareSheet() { dom.svShareOverlay.classList.remove('show'); }
 
-  // ─────────────────────────────────────────────────────────────────
-  // MY STATUS PANEL
-  // ─────────────────────────────────────────────────────────────────
   function openMyStatus() {
     dom.myStatusOverlay.style.display = 'block';
     dom.myStatusPanel.style.display   = 'block';
@@ -1653,7 +1458,7 @@
     var cellsHtml = urls.slice(0, 4).map(function (url, i) {
       var safeUrl  = (url || '').replace(/'/g, '%27');
       var moreHtml = (i === 3 && count > 4) ? '<span class="mp-grid-more">+' + (count - 4) + '</span>' : '';
-      return '<div class="mp-grid-cell" style="background-image:url(\'' + safeUrl + '\')">' + moreHtml + '</div>';
+      return '<div class="mp-grid-cell"><img src="' + safeUrl + '" style="width:100%;height:100%;object-fit:contain;background:#000;">' + moreHtml + '</div>';
     }).join('');
     return '<div style="position:relative;width:46px;height:46px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--mid);">' +
            '<div class="mp-multi-grid" data-count="' + countAttr + '">' + cellsHtml + '</div>' +
@@ -1676,25 +1481,54 @@
             var wrap = document.createElement('div');
             wrap.className = 'my-status-item';
             wrap.setAttribute('data-status-id', s.status_id);
-            var viewsNum  = Math.floor(Math.random() * 50) + 1;
+
+            var viewsNum = s.views_count || 0;
+
             var mediaUrls = (s.media_urls && s.media_urls.length) ? s.media_urls : (s.media_url ? [s.media_url] : []);
             var isVid     = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(mediaUrls[0] || '');
-            var thumbHtml;
+
             if (mediaUrls.length > 1) {
-              thumbHtml = buildStatusGridHtml(mediaUrls);
+              wrap.innerHTML = buildStatusGridHtml(mediaUrls);
             } else if (isVid) {
-              thumbHtml = '<video class="my-s-thumb" src="' + (mediaUrls[0] || '') + '" muted playsinline></video>';
+              wrap.innerHTML = '<video class="my-s-thumb" src="' + (mediaUrls[0] || '') + '" muted playsinline></video>';
             } else {
-              thumbHtml = '<img class="my-s-thumb" src="' + (mediaUrls[0] || '') + '" alt="">';
+              wrap.innerHTML = '<img class="my-s-thumb" src="' + (mediaUrls[0] || '') + '" alt="">';
             }
-            wrap.innerHTML =
-              thumbHtml +
-              '<div class="my-s-info" onclick="window.Asterix.status.openViews(' + s.status_id + ')">' +
-              '<div class="cap">' + (s.caption || 'No caption') + '</div>' +
-              '<div class="views"><i class="fas fa-eye"></i> ' + viewsNum + ' views &bull; ' + s.expires_in_minutes + 'm left</div>' +
-              '</div>' +
-              '<button class="edit-s-btn" onclick="window.Asterix.status.editMyStatus(' + s.status_id + ', \'' + (s.caption || '').replace(/'/g, '&#39;') + '\')" title="Edit caption"><i class="fas fa-edit"></i></button>' +
-              '<button class="del-s-btn" onclick="window.Asterix.status.deleteMyStatus(' + s.status_id + ')"><i class="fas fa-trash"></i></button>';
+
+            var infoDiv = document.createElement('div');
+            infoDiv.className = 'my-s-info';
+            infoDiv.onclick = function() { window.Asterix.status.openViews(s.status_id); };
+            infoDiv.innerHTML = '<div class="cap">' + (s.caption || 'No caption') + '</div>' +
+                                '<div class="views"><i class="fas fa-eye"></i> ' + viewsNum + ' views &bull; ' + s.expires_in_minutes + 'm left</div>';
+            wrap.appendChild(infoDiv);
+
+            var editBtn = document.createElement('button');
+            editBtn.className = 'edit-s-btn';
+            editBtn.title = s.event_id ? 'Manage Guests' : 'Edit caption';
+            editBtn.innerHTML = '<i class="fas fa-edit"></i>';
+            editBtn.onclick = function(e) {
+              e.stopPropagation();
+              if (s.event_id) {
+                if (window.Asterix && window.Asterix.wedding && window.Asterix.wedding.openGuests) {
+                  window.Asterix.wedding.openGuests(s.event_id);
+                } else {
+                  alert('Event management module not loaded.');
+                }
+              } else {
+                window.Asterix.status.editMyStatus(s.status_id, s.caption || '');
+              }
+            };
+            wrap.appendChild(editBtn);
+
+            var delBtn = document.createElement('button');
+            delBtn.className = 'del-s-btn';
+            delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+            delBtn.onclick = function(e) {
+              e.stopPropagation();
+              window.Asterix.status.deleteMyStatus(s.status_id);
+            };
+            wrap.appendChild(delBtn);
+
             list.appendChild(wrap);
           });
         }
@@ -1742,9 +1576,6 @@
       .finally(function () { btn.disabled = false; btn.textContent = 'Save'; });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // UPLOAD — category UI + commerce fields + multi-file
-  // ─────────────────────────────────────────────────────────────────
   function updateCategoryUI(cat) {
     dom.mktLinkWrap.style.display = (cat === 'Market') ? 'block' : 'none';
     if (dom.weddingHint) dom.weddingHint.style.display = (cat === 'Weddings') ? 'flex' : 'none';
@@ -1806,7 +1637,6 @@
     dom.commerceSection = section;
   }
 
-  // ── Multi-file upload preview ────────────────────────────────────
   function handleFileSelection() {
     var files = Array.prototype.slice.call(dom.fileInput.files || []);
     if (!files.length) return;
@@ -1952,27 +1782,58 @@
       .finally(function () { dom.uploadBtn.disabled = uploadSelectedFiles.length === 0; });
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // VIEWS PANEL
-  // ─────────────────────────────────────────────────────────────────
   function openViews(statusId) {
     var list  = dom.viewsList;
-    list.innerHTML = '';
-    var count = Math.floor(Math.random() * 25) + 3;
-    for (var i = 0; i < count; i++) {
-      var div = document.createElement('div');
-      div.className = 'vp-viewer';
-      div.innerHTML = '<img src="/static/images/default_profile_picture.webp"><span>Viewer ' + (i + 1) + '</span><i class="fas fa-eye" style="color:var(--sub);"></i>';
-      list.appendChild(div);
-    }
+    var cacheKey = 'asterix_status_views_' + statusId;
+    var cached = localStorage.getItem(cacheKey);
+
     dom.viewsPanel.style.display = 'block';
+
+    if (cached) {
+      try {
+        var parsed = JSON.parse(cached);
+        renderViewsList(parsed);
+      } catch(e) {}
+    } else {
+      list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--sub);">Loading views...</p>';
+    }
+
+    fetch('/api/status/' + statusId + '/views/')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          if (!cached) list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--sub);">' + data.error + '</p>';
+          return;
+        }
+        var views = data.views || [];
+        localStorage.setItem(cacheKey, JSON.stringify(views));
+        renderViewsList(views);
+      }).catch(function() {
+        if (!cached) list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--sub);">Network error.</p>';
+      });
+  }
+
+  function renderViewsList(views) {
+    var list = dom.viewsList;
+    if (!views.length) {
+      list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--sub);">No views yet.</p>';
+      return;
+    }
+
+    list.innerHTML = views.map(function(v) {
+      return '<div class="vp-viewer">' +
+             '<img src="' + (v.profile_picture || '/static/images/default_profile_picture.webp') + '">' +
+             '<div style="flex:1;padding-left:12px;">' +
+             '<div style="font-size:14px;font-weight:600;color:var(--text);">' + v.username + '</div>' +
+             '<div style="font-size:11px;color:var(--sub);margin-top:2px;">' + v.time_ago + '</div>' +
+             '</div>' +
+             '<i class="fas fa-eye" style="color:var(--sub);"></i>' +
+             '</div>';
+    }).join('');
   }
 
   function closeViews() { dom.viewsPanel.style.display = 'none'; }
 
-  // ─────────────────────────────────────────────────────────────────
-  // PUBLIC API
-  // ─────────────────────────────────────────────────────────────────
   var publicAPI = {
     open:               openViewer,
     close:              closeViewer,
@@ -1998,18 +1859,16 @@
     updateUploadEmojis: updateUploadEmojis,
     openViews:          openViews,
     closeViews:         closeViews,
+    updateStatusBadges: updateStatusBadges,
   };
 
   if (!window.Asterix) window.Asterix = {};
   window.Asterix.status = publicAPI;
 
-  // Global modal function aliases
   window.openOfferModal         = openOfferModal;
   window.closeOfferModal        = closeOfferModal;
   window.submitOffer            = submitOffer;
-  // openInterestSheet is intentionally NOT re-exported to window —
-  // negotiate.js owns window.openInterestSheet to avoid conflicts.
-  window.closeInterestSheet = closeInterestSheet;
+  window.closeInterestSheet     = closeInterestSheet;
   window.openCounterOfferModal  = openCounterOfferModal;
   window.closeCounterOfferModal = closeCounterOfferModal;
   window.submitCounterOffer     = submitCounterOffer;
@@ -2017,9 +1876,6 @@
   window.closeBuyModal          = closeBuyModal;
   window.submitBuyNow           = submitBuyNow;
 
-  // ─────────────────────────────────────────────────────────────────
-  // DOM EVENT WIRING
-  // ─────────────────────────────────────────────────────────────────
   dom.openMyStatusBtn.addEventListener('click', openMyStatus);
   dom.closeMyStatusBtn.addEventListener('click', closeMyStatus);
   dom.myStatusOverlay.addEventListener('click', closeMyStatus);
@@ -2072,13 +1928,8 @@
   dom.svShareClose.addEventListener('click', closeShareSheet);
   dom.svShareOverlay.addEventListener('click', function (e) { if (e.target === this) closeShareSheet(); });
 
-  // Wire the static replay button that lives in the HTML.  showCategoryEnd()
-  // updates its label/onclick each time it's called, so this initial binding
-  // is just a safety-net for direct DOM interactions.
   if (dom.svCatReplayBtn) {
-    dom.svCatReplayBtn.addEventListener('click', function () {
-      replayCurrentCategory();
-    });
+    dom.svCatReplayBtn.addEventListener('click', function () { replayCurrentCategory(); });
   }
 
   setupReplyPause();
@@ -2095,17 +1946,19 @@
     closeShareSheet();
     var item = viewer.playlist[viewer.idx];
     if (!item) return;
-    var text = item.caption || 'Check out this status on Fizz-me! 🇿🇲';
-    if (item.market_link) text += '\n' + item.market_link;
-    else if (item.media_url) text += '\n' + item.media_url;
+    var shareUrl = window.location.origin + '/share/listing/' + item.status_id + '/';
+    var text = (item.caption || 'Check out this listing on Fizzme! 🇿🇲') + '\n\n' + shareUrl;
     window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
   });
+
   dom.shareFb.addEventListener('click', function () {
     closeShareSheet();
     var item = viewer.playlist[viewer.idx];
-    if (item && item.media_url) window.open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(item.media_url), '_blank');
-    else toast('Share', 'No media to share on Facebook.');
+    if (!item) return;
+    var shareUrl = window.location.origin + '/share/listing/' + item.status_id + '/';
+    window.open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(shareUrl), '_blank');
   });
+
   dom.shareTk.addEventListener('click', function () {
     closeShareSheet();
     toast('TikTok', 'Save the media first, then upload it to TikTok manually.');
@@ -2127,5 +1980,10 @@
 
   updateCategoryUI(dom.catSel.value);
 
-  console.log('[Fizz-me] Status module loaded (grid-select + pause/play + interest sheet + replay)');
+  setTimeout(updateStatusBadges, 2000);
+  setInterval(updateStatusBadges, 60000);
+
+  flushOfflineViews();
+
+  console.log('[Fizzme] Status module loaded (caching + real view count + offline view queue)');
 })();

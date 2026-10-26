@@ -1,0 +1,9 @@
+That’s fine. Keeping bible-api.com with no key is a reasonable choice while it works. The reader calls it directly from the browser, and it doesn’t need a key, so nothing secret is exposed. You can skip the api.bible setup and the Django proxy.
+
+A few things to keep in mind:
+
+No guarantees. It’s a free service with no uptime promise. If it goes down or starts rate-limiting, the sheet shows the retry message, so the failure is contained.
+Translation. The default is the World English Bible. That’s fine for most uses, but if your users expect KJV or NIV, you’ll need api.bible later.
+Fair use. Each chapter is fetched once per page load and cached in memory. Heavy use from many users could get you blocked, so if your traffic grows, consider caching on your own server.
+
+If you hit problems later, the switch to api.bible is mostly contained in fetchChapter() and the book-code map, so you won’t need to rewrite the reader.

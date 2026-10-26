@@ -1,5 +1,8 @@
 // ============================================================
 // pwa-bridge.js — PWA <-> Native bridge shim
+//   + FCM token forwarding (Android)
+//   + VAPID Web Push (Browser/PWA)
+//   + SW Message Navigation
 // ============================================================
 
 (function () {
@@ -7,7 +10,17 @@
 
   var isNative = !!(window.AndroidBridge);
 
-  // ── Service worker registration ────────────────────────────────────
+  // ── Service worker registration & navigation listener ──────────────
+  if ('serviceWorker' in navigator) {
+    // Listen for messages from the Service Worker (e.g. when a notification is clicked)
+    navigator.serviceWorker.addEventListener('message', function (event) {
+      if (event.data && event.data.type === 'NAVIGATE') {
+        // The service worker wants us to navigate to a chat URL
+        window.location.href = event.data.url;
+      }
+    });
+  }
+
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return Promise.resolve(null);
     return navigator.serviceWorker.register('/service-worker.js').then(function (reg) {
@@ -57,6 +70,8 @@
 
   // ── Contacts (web fallback via Contacts Picker API) ───────────────────
   function contactsPickerSupported() {
+    // Disable web picker inside Android WebView; we use our native bridge modal instead
+    if (isNative) return false;
     return !!(navigator.contacts && navigator.contacts.select && window.isSecureContext);
   }
 
@@ -71,11 +86,6 @@
         var name = (c.name && c.name[0]) || 'Unknown';
         var tels = (c.tel || []).map(function (t) { return t.trim(); }).filter(Boolean);
         if (!tels.length) return;
-
-        // One row per CONTACT — first number is primary for the
-        // Fizz-me membership lookup and Add/Invite actions.
-        // Additional numbers are stashed on extra_phones for
-        // potential future use; nothing currently reads that field.
         out.push({
           name:         name,
           phone:        tels[0],
@@ -87,7 +97,7 @@
     });
   }
 
-  // ── Web Push ─────────────────────────────────────────────────────────
+  // ── Web Push (VAPID — browser/PWA) ────────────────────────────────────
   function _urlBase64ToUint8Array(base64String) {
     var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     var base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -135,6 +145,8 @@
   }
 
   function unsubscribeFromPush() {
+    if (isNative) unregisterFcmToken();
+
     if (!('serviceWorker' in navigator)) return Promise.resolve(false);
     return navigator.serviceWorker.ready
       .then(function (reg) { return reg.pushManager.getSubscription(); })
@@ -149,11 +161,75 @@
   }
 
   function enablePushNotifications() {
+    if (isNative) window.PWABridge.registerFcm();
+
     return requestNotificationPermission().then(function (perm) {
       if (perm !== 'granted') return { granted: false };
-      return subscribeToPush().then(function (sub) { return { granted: true, subscribed: !!sub }; });
+      return subscribeToPush().then(function (sub) {
+        return { granted: true, subscribed: !!sub };
+      });
     });
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FCM token forwarding — native Android only.
+  // ═══════════════════════════════════════════════════════════════════
+  var _lastSentFcmToken = null;
+
+  function _fcmCsrf() {
+    var m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : (window.ASTERIX && window.ASTERIX.CSRF) || '';
+  }
+
+  function sendFcmTokenToServer(token) {
+    if (!token || token === _lastSentFcmToken) return Promise.resolve(false);
+    if (localStorage.getItem('asterix_notifs') === 'false') return Promise.resolve(false);
+
+    return fetch('/api/push/fcm/register/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _fcmCsrf() },
+      body: JSON.stringify({ token: token }),
+    })
+      .then(function (r) {
+        if (r.ok) {
+          _lastSentFcmToken = token;
+          console.log('[PWABridge] FCM token registered with server');
+          return true;
+        }
+        console.warn('[PWABridge] FCM register failed:', r.status);
+        return false;
+      })
+      .catch(function (err) {
+        console.warn('[PWABridge] FCM token upload error:', err);
+        return false;
+      });
+  }
+
+  function unregisterFcmToken() {
+    if (!_lastSentFcmToken) return Promise.resolve(false);
+    var tok = _lastSentFcmToken;
+    _lastSentFcmToken = null;
+    return fetch('/api/push/fcm/unregister/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _fcmCsrf() },
+      body: JSON.stringify({ token: tok }),
+    }).catch(function () { return false; });
+  }
+
+  if (isNative && localStorage.getItem('asterix_notifs') !== 'false') {
+    try {
+      var _initToken = window.AndroidBridge.getFcmToken && window.AndroidBridge.getFcmToken();
+      if (_initToken) sendFcmTokenToServer(_initToken);
+    } catch (e) {
+      console.warn('[PWABridge] could not read initial FCM token:', e);
+    }
+  }
+
+  window.addEventListener('fcmToken', function (e) {
+    sendFcmTokenToServer(e.detail);
+  });
 
   // ── Public API ────────────────────────────────────────────────────────
   window.PWABridge = {
@@ -167,6 +243,13 @@
     subscribeToPush:              subscribeToPush,
     unsubscribeFromPush:          unsubscribeFromPush,
     enablePushNotifications:      enablePushNotifications,
+    registerFcm: function () {
+      if (!isNative) return Promise.resolve(false);
+      try {
+        return sendFcmTokenToServer(window.AndroidBridge.getFcmToken());
+      } catch (e) { return Promise.resolve(false); }
+    },
+    unregisterFcm: unregisterFcmToken,
   };
 
   if (document.readyState === 'complete') {
@@ -175,5 +258,5 @@
     window.addEventListener('load', registerServiceWorker);
   }
 
-  console.log('[Fizz-me] PWA bridge loaded. Native shell detected:', isNative);
+  console.log('[Fizzme] PWA bridge loaded. Native shell detected:', isNative);
 })();

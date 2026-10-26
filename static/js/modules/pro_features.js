@@ -29,6 +29,19 @@
     return fetch(url).then(function (r) { return r.json(); });
   }
 
+    // ── Text prompt in a SweetAlert modal (falls back to the browser prompt) ──
+  async function askText(title, label) {
+    if (window.Swal) {
+      var r = await window.Swal.fire({
+        title: title, input: 'textarea', inputLabel: label,
+        showCancelButton: true, confirmButtonText: 'Submit',
+        confirmButtonColor: '#e6a817', inputAttributes: { maxlength: 500 },
+      });
+      return r.isConfirmed ? (r.value || '').trim() : '';
+    }
+    return (window.prompt(label) || '').trim();
+  }
+
   // ── Stars helper ──────────────────────────────────────────────
   function renderStars(score, max) {
     max = max || 5;
@@ -48,8 +61,8 @@
     order_placed:      { icon: '📦', label: 'Order Placed',        actor: null },
     seller_confirmed:  { icon: '✅', label: 'Seller Confirmed',     actor: 'seller' },
     in_transit:        { icon: '🚚', label: 'In Transit',           actor: 'seller' },
-    delivered:         { icon: '📬', label: 'Delivered',            actor: 'buyer' },
-    payment_released:  { icon: '💰', label: 'Payment Released',     actor: 'buyer' },
+    delivered:         { icon: '📬', label: 'Received by buyer',            actor: 'buyer' },
+    payment_released:  { icon: '💰', label: 'Deal Closed',     actor: 'buyer' },
     disputed:          { icon: '⚠️', label: 'Dispute Raised',       actor: 'both' },
   };
 
@@ -276,8 +289,8 @@
     // Wire dispute
     var disBtn = document.getElementById('delivery-dispute-btn');
     if (disBtn) {
-      disBtn.onclick = function () {
-        var note = prompt('Briefly describe the issue:');
+      disBtn.onclick = async function () {
+        var note = await askText('Raise a dispute', 'Briefly describe the issue:');
         if (!note) return;
         postJSON('/api/delivery/advance/', { deal_id: parseInt(d.deal_id), stage: 'disputed', notes: note })
           .then(function () { _loadDelivery(d.deal_id); toast('⚠️', 'Dispute raised'); })
@@ -557,11 +570,23 @@
       trackBtn.innerHTML = '🚚 Track Delivery';
       trackBtn.onclick = function (e) {
         e.stopPropagation();
-        openDeliveryPanel(msg.deal.id);
+        window.location.href = '/deals/' + msg.deal.id + '/delivery/';
       };
       var actions = dcard.querySelector('.deal-card-actions');
       if (actions) actions.appendChild(trackBtn);
       else dcard.appendChild(trackBtn);
+      var rcpt = document.createElement('a');
+      rcpt.className = 'deal-card-btn deal-btn-accept';
+      rcpt.style.marginTop = '6px';
+      rcpt.style.display = 'block';
+      rcpt.style.textAlign = 'center';
+      rcpt.href = '/deals/' + msg.deal.id + '/receipt/';
+      rcpt.target = '_blank';
+      rcpt.rel = 'noopener';
+      rcpt.innerHTML = '🧾 View receipt';
+      rcpt.onclick = function (e) { e.stopPropagation(); };
+      if (actions) actions.appendChild(rcpt);
+      else dcard.appendChild(rcpt);
 
       return row;
     };
@@ -601,6 +626,7 @@
     _hookBuildBubble();
     _hookChatHeader();
     _hookMyStatus();
+    if (window.ASTERIX_DELIVERY_PAGE) { _loadDelivery(window.ASTERIX_DELIVERY_PAGE); }
   }
 
   if (document.readyState === 'loading') {

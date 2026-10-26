@@ -1,22 +1,35 @@
 // ============================================================
 // chat.js — Full chat module
-//
-// FIXES
-// ─────
-//   ENQUIRY  Offer cards now show the buyer's original enquiry text
-//            (server-stored on msg.reply_text; no client-side lookup).
-//   DECLINE  Banner hides "Buy" and shows "New Offer" when this buyer
-//            got declined — prevents bypassing the negotiation.
-//   MEDIA    All Cloudinary thumbnails proxied through
-//            /api/status/proxy-media/ to avoid OpaqueResponseBlocking.
-//   PAY      Banner checks active_deal_id BEFORE reserved/sold, so
-//            after Buy Now the buyer keeps a working "💳 Pay" button.
 // ============================================================
 
 (function() {
   'use strict';
 
-  // ── DOM refs ─────────────────────────────────────────────
+  // 👇 INJECT TYPING BUBBLE CSS 👇
+  (function injectTypingCSS() {
+    if (document.getElementById('typing-indicator-css')) return;
+    var style = document.createElement('style');
+    style.id = 'typing-indicator-css';
+    style.textContent = `
+      @keyframes typingBounce {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1); }
+      }
+      .typing-dot {
+        width: 6px;
+        height: 6px;
+        background-color: #8696a0;
+        border-radius: 50%;
+        display: inline-block;
+        animation: typingBounce 1.4s infinite ease-in-out both;
+      }
+      .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+      .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+      .typing-dot:nth-child(3) { animation-delay: 0s; }
+    `;
+    document.head.appendChild(style);
+  })();
+
   var convList          = document.getElementById('conversation-list');
   var chatContainer     = document.getElementById('id_chat_item_container');
   var msgInput          = document.getElementById('msg-input');
@@ -47,6 +60,7 @@
 
   var messageCache      = new Map();
   var loadingRecipients = new Set();
+  var _typingBubbleEl   = null; // 👈 Variable to hold the typing bubble element
 
   var INITIAL_LIMIT   = 30;
   var LOAD_MORE_LIMIT = 20;
@@ -61,7 +75,6 @@
     return url;
   }
 
-  // Same-origin wrapper for Cloudinary URLs.
   function _fzProxy(url) {
     if (!url) return '';
     var s = String(url);
@@ -72,18 +85,84 @@
   }
 
   function isMobile() { return window.innerWidth <= 768; }
-
   function fmtTime(ts) { return window.fmtTime ? window.fmtTime(ts) : ''; }
 
   function linkify(text) {
     if (!text) return '';
+
     var escaped = text
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    return escaped.replace(/(https?:\/\/[^\s]+)/g, function(match) {
-      var display = match.length > 60 ? match.substring(0, 60) + '\u2026' : match;
-      return '<a href="' + match + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent2);text-decoration:underline;">' + display + '</a>';
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    var links = [];
+
+    function addLink(html) {
+      var index = links.length;
+      links.push(html);
+      return '___LINK_' + index + '___';
+    }
+
+    escaped = escaped.replace(/(https?:\/\/[^\s]+)/g, function(match) {
+      var cleanUrl = match;
+      var trailing = '';
+      var puncMatch = cleanUrl.match(/[.,!?)]$/);
+      if (puncMatch) {
+        trailing = puncMatch[0];
+        cleanUrl = cleanUrl.slice(0, -1);
+      }
+      var display = cleanUrl.length > 60 ? cleanUrl.substring(0, 60) + '\u2026' : cleanUrl;
+      return addLink('<a href="' + cleanUrl + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent2);text-decoration:underline;">' + display + '</a>') + trailing;
     });
+
+    escaped = escaped.replace(/(^|\s)(www\.[^\s]+)/g, function(match, space, url) {
+      var cleanUrl = url;
+      var trailing = '';
+      var puncMatch = cleanUrl.match(/[.,!?)]$/);
+      if (puncMatch) {
+        trailing = puncMatch[0];
+        cleanUrl = cleanUrl.slice(0, -1);
+      }
+      var fullUrl = 'https://' + cleanUrl;
+      var display = cleanUrl.length > 60 ? cleanUrl.substring(0, 60) + '\u2026' : cleanUrl;
+      return space + addLink('<a href="' + fullUrl + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent2);text-decoration:underline;">' + display + '</a>') + trailing;
+    });
+
+    escaped = escaped.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, function(match) {
+      return addLink('<a href="mailto:' + match + '" style="color:var(--accent2);text-decoration:underline;">' + match + '</a>');
+    });
+
+    var phoneZmRegex = /(\+?260|0)[\s-]?([7-9]\d)[\s-]?(\d{3})[\s-]?(\d{4})\b/g;
+    escaped = escaped.replace(phoneZmRegex, function(match) {
+      var cleanNum = match.replace(/[\s-]/g, '');
+      if (cleanNum.startsWith('0')) cleanNum = '+260' + cleanNum.substring(1);
+      return addLink('<a href="tel:' + cleanNum + '" style="color:#25d366;text-decoration:underline;font-weight:600;">📞 ' + match + '</a>');
+    });
+
+    var phoneIntlRegex = /(\+\d{1,3}[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})\b/g;
+    escaped = escaped.replace(phoneIntlRegex, function(match) {
+      var cleanNum = match.replace(/[\s-]/g, '');
+      return addLink('<a href="tel:' + cleanNum + '" style="color:#25d366;text-decoration:underline;font-weight:600;">📞 ' + match + '</a>');
+    });
+
+    var bibleRegex = /\b((?:[1-3]\s)?(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|1 Samuel|2 Samuel|1 Kings|2 Kings|1 Chronicles|2 Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song of Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|1 Corinthians|2 Corinthians|Galatians|Ephesians|Philippians|Colossians|1 Thessalonians|2 Thessalonians|1 Timothy|2 Timothy|Titus|Philemon|Hebrews|James|1 Peter|2 Peter|1 John|2 John|3 John|Jude|Revelation))\s+(\d+):(\d+(?:-\d+)?)\b/gi;
+    escaped = escaped.replace(bibleRegex, function(match, book, chapter, verse) {
+      var bookClean = book.replace(/\s+/g, '+');
+      var deepLink = 'https://www.bible.com/bible/111/' + bookClean + '.' + chapter + '.' + verse;
+      return addLink('<a href="' + deepLink + '" target="_blank" rel="noopener noreferrer" style="color:#f1c40f;font-weight:700;text-decoration:underline;background:rgba(241,196,15,0.1);padding:0 4px;border-radius:4px;" title="Open in Bible">📖 ' + match + '</a>');
+    });
+
+    escaped = escaped.replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,!?])/g, '$1<b>$2</b>');
+    escaped = escaped.replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,!?])/g, '$1<i>$2</i>');
+    escaped = escaped.replace(/(^|\s)~([^~\n]+)~(?=\s|$|[.,!?])/g, '$1<s style="opacity:0.7;">$2</s>');
+    escaped = escaped.replace(/(^|\s)`([^`\n]+)`(?=\s|$|[.,!?])/g, '$1<code style="background:rgba(255,255,255,0.15); padding:2px 5px; border-radius:4px; font-family:monospace; font-size:13px;">$2</code>');
+
+    escaped = escaped.replace(/___LINK_(\d+)___/g, function(match, index) {
+      return links[index];
+    });
+
+    return escaped.replace(/\n/g, '<br>');
   }
 
   function getCsrf() {
@@ -93,6 +172,36 @@
     }
     return (window.ASTERIX && window.ASTERIX.CSRF) || '';
   }
+
+  // 👇 TYPING BUBBLE FUNCTIONS 👇
+  function showTypingBubble() {
+    if (!chatContainer) return;
+    var atBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 80;
+
+    if (!_typingBubbleEl) {
+      _typingBubbleEl = document.createElement('div');
+      _typingBubbleEl.className = 'msg-row theirs';
+      _typingBubbleEl.style.marginBottom = '4px';
+      _typingBubbleEl.innerHTML =
+        '<div class="msg-bubble" style="padding: 12px 18px; background: #1f2c33; border-radius: 12px 12px 12px 2px;">' +
+          '<div style="display: flex; align-items: center; gap: 5px; height: 10px;">' +
+            '<span class="typing-dot"></span>' +
+            '<span class="typing-dot"></span>' +
+            '<span class="typing-dot"></span>' +
+          '</div>' +
+        '</div>';
+      chatContainer.appendChild(_typingBubbleEl);
+      if (atBottom) chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+  }
+
+  function hideTypingBubble() {
+    if (_typingBubbleEl) {
+      _typingBubbleEl.remove();
+      _typingBubbleEl = null;
+    }
+  }
+  // 👆 END TYPING BUBBLE FUNCTIONS 👆
 
   function downloadFile(url, filename) {
     if (window.AndroidBridge && typeof window.AndroidBridge.downloadFileExternally === 'function') {
@@ -145,6 +254,7 @@
     if (cls.isDocx) return name.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/msword';
     if (cls.isXlsx) return name.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/vnd.ms-excel';
     if (cls.isPptx) return name.endsWith('.pptx') ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation' : 'application/vnd.ms-powerpoint';
+    if (cls.isTxt)  return 'text/plain';
     return a.file_type || 'application/octet-stream';
   }
 
@@ -193,6 +303,7 @@
       isDocx:  name.endsWith('.doc')  || name.endsWith('.docx'),
       isXlsx:  name.endsWith('.xls')  || name.endsWith('.xlsx'),
       isPptx:  name.endsWith('.ppt')  || name.endsWith('.pptx'),
+      isTxt:   name.endsWith('.txt')  || ft === 'text/plain',
       isZip:   name.endsWith('.zip')  || name.endsWith('.rar'),
     };
   }
@@ -202,6 +313,7 @@
     if (cls.isDocx) return { icon: 'fa-file-word',       color: '#2b579a' };
     if (cls.isXlsx) return { icon: 'fa-file-excel',      color: '#217346' };
     if (cls.isPptx) return { icon: 'fa-file-powerpoint', color: '#d24726' };
+    if (cls.isTxt)  return { icon: 'fa-file-alt',        color: '#e9edef' };
     if (cls.isZip)  return { icon: 'fa-file-archive',    color: '#795548' };
     return { icon: 'fa-file', color: '#aaa' };
   }
@@ -209,16 +321,6 @@
   function refreshThread() {
     if (State.activeRecipient && window.Asterix && window.Asterix.chat) {
       window.Asterix.chat.loadMessages(State.activeRecipient, true);
-    }
-  }
-
-  function openPaymentModal(dealId, amount, buyer, seller) {
-    if (window.Asterix && window.Asterix.payment) {
-      window.Asterix.payment.open(dealId, amount, buyer, seller, function() {
-        renderAllListings(); refreshThread();
-      });
-    } else {
-      toast('Error', 'Payment module not available.');
     }
   }
 
@@ -232,7 +334,6 @@
     return el;
   }
 
-  // ── Bubble ───────────────────────────────────────────────
   function buildBubble(msg) {
     var isMe   = msg.sender === State.ME || msg.sender === 'me';
     var sender = msg.sender || msg.username || 'Unknown';
@@ -249,7 +350,7 @@
       var quote    = document.createElement('div');
       quote.className = 'msg-quote';
       var qSender  = msg.reply_sender || 'Unknown';
-      var qText    = msg.reply_text   || '[Media]';
+      var qText    = msg.reply_text   || '';
       var mediaUrl = msg.reply_media  || '';
       var qContent = document.createElement('div');
       qContent.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -257,19 +358,27 @@
         var pmu   = _fzProxy(mediaUrl);
         var thumb = document.createElement('div');
         thumb.style.cssText = 'flex-shrink:0;width:40px;height:40px;border-radius:4px;overflow:hidden;background:var(--mid);';
-        var isImg = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(pmu);
         var isVid = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(pmu);
-        if (isImg) {
-          var qImg = document.createElement('img');
-          qImg.src = pmu; qImg.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-          thumb.appendChild(qImg);
-        } else if (isVid) {
+        var isDoc = /\.(pdf|docx?|xlsx?|pptx?|zip|txt|csv)(\?|$)/i.test(pmu);
+        if (isVid) {
           var qVid = document.createElement('video');
           qVid.src = pmu; qVid.style.cssText = 'width:100%;height:100%;object-fit:cover;'; qVid.muted = true;
           thumb.appendChild(qVid);
+        } else if (isDoc) {
+          thumb.style.display = 'none';
         } else {
-          thumb.innerHTML = '<i class="fas fa-file" style="font-size:20px;color:var(--sub);display:flex;align-items:center;justify-content:center;width:100%;height:100%;"></i>';
+          var qImg = document.createElement('img');
+          qImg.src = pmu; qImg.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+          qImg.onerror = function () { thumb.style.display = 'none'; };
+          thumb.appendChild(qImg);
         }
+        thumb.style.cursor = 'pointer';
+        thumb.onclick = function (e) {
+          e.stopPropagation();
+          if (!(window.Asterix && window.Asterix.viewer)) return;
+          var kind = isVid ? 'video' : 'image';
+          window.Asterix.viewer.open(kind, pmu, qSender);
+        };
         qContent.appendChild(thumb);
       }
       var textWrapper = document.createElement('div');
@@ -343,8 +452,10 @@
         var imgWrap = document.createElement('div');
         imgWrap.style.cssText = 'position:relative;display:inline-block;max-width:260px;border-radius:8px;overflow:hidden;background:var(--mid);';
         var img = document.createElement('img');
-        img.src = _fzProxy(a.file_url); img.style.cssText = 'width:100%;max-width:260px;display:block;cursor:pointer;'; img.loading = 'lazy';
-        img.onclick = function(e) { e.stopPropagation(); if (window.openZoom) window.openZoom('image', a.file_url); };
+        img.src = _fzProxy(a.file_url);
+        img.style.cssText = 'width:100%;max-width:260px;max-height:320px;object-fit:cover;display:block;cursor:pointer;';
+        img.loading = 'lazy';
+        img.onclick = function(e) { e.stopPropagation(); if (window.Asterix && window.Asterix.viewer) window.Asterix.viewer.open('image', _fzProxy(a.file_url), displayName); else if (window.openZoom) window.openZoom('image', a.file_url); };
         var dlO = document.createElement('div');
         dlO.style.cssText = 'position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .2s;';
         dlO.innerHTML = '<i class="fas fa-download" style="color:#fff;font-size:14px;"></i>';
@@ -360,16 +471,69 @@
         vidWrap.style.cssText = 'position:relative;max-width:260px;border-radius:8px;overflow:hidden;background:var(--mid);';
         var video = document.createElement('video');
         video.src = _fzProxy(a.file_url); video.controls = true; video.preload = 'metadata';
-        video.style.cssText = 'width:100%;max-width:260px;display:block;'; video.playsInline = true;
+        video.style.cssText = 'width:100%;max-width:260px;max-height:320px;object-fit:contain;background:#000;display:block;'; video.playsInline = true;
+        var vidExp = document.createElement('div');
+        vidExp.style.cssText = 'position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;';
+        vidExp.innerHTML = '<i class="fas fa-expand" style="color:#fff;font-size:13px;"></i>';
+        vidExp.onclick = function(e) { e.stopPropagation(); if (window.Asterix && window.Asterix.viewer) window.Asterix.viewer.open('video', _fzProxy(a.file_url), displayName); };
+        vidWrap.appendChild(vidExp);
         vidWrap.appendChild(video);
         wrap.appendChild(vidWrap); bub.appendChild(wrap); return;
       }
 
       if (cls.isAudio) {
         var audio = document.createElement('audio');
-        audio.src = _fzProxy(a.file_url); audio.controls = true;
-        audio.style.cssText = 'width:100%;max-width:260px;display:block;border-radius:6px;';
-        wrap.appendChild(audio); bub.appendChild(wrap); return;
+        audio.src = _fzProxy(a.file_url);
+        audio.style.display = 'none';
+
+        var audioUI = document.createElement('div');
+        audioUI.style.cssText = 'display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.08);border-radius:12px;padding:10px 14px;margin-top:4px;max-width:260px;';
+
+        var iconBox = document.createElement('div');
+        iconBox.innerHTML = '<i class="fas fa-music" style="color:#25d366;font-size:20px;"></i>';
+        iconBox.style.cssText = 'flex-shrink:0;';
+
+        var label = document.createElement('div');
+        label.style.cssText = 'flex:1;font-size:13px;font-weight:600;color:var(--text);';
+        label.textContent = 'Audio Message';
+
+        var playBtn = document.createElement('button');
+        playBtn.innerHTML = '<i class="fas fa-play" style="color:#fff;font-size:14px;"></i>';
+        playBtn.style.cssText = 'background:var(--accent2);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;';
+
+        var dlBtn = document.createElement('button');
+        dlBtn.innerHTML = '<i class="fas fa-download" style="color:#fff;font-size:14px;"></i>';
+        dlBtn.style.cssText = 'background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:4px;';
+
+        playBtn.onclick = function(e) {
+          e.stopPropagation();
+          if (audio.paused) {
+            audio.play();
+            playBtn.innerHTML = '<i class="fas fa-pause" style="color:#fff;font-size:14px;"></i>';
+          } else {
+            audio.pause();
+            playBtn.innerHTML = '<i class="fas fa-play" style="color:#fff;font-size:14px;"></i>';
+          }
+        };
+
+        audio.onended = function() {
+          playBtn.innerHTML = '<i class="fas fa-play" style="color:#fff;font-size:14px;"></i>';
+        };
+
+        dlBtn.onclick = function(e) {
+          e.stopPropagation();
+          downloadFile(a.file_url, displayName);
+        };
+
+        audioUI.appendChild(iconBox);
+        audioUI.appendChild(label);
+        audioUI.appendChild(playBtn);
+        audioUI.appendChild(dlBtn);
+
+        wrap.appendChild(audioUI);
+        wrap.appendChild(audio);
+        bub.appendChild(wrap);
+        return;
       }
 
       var pill = document.createElement('div');
@@ -382,20 +546,27 @@
         if (e.target.classList.contains('pill-dl') || (e.target.closest && e.target.closest('.pill-dl'))) {
           e.stopPropagation(); downloadFile(a.file_url, displayName); return;
         }
-        openDocumentExternally(a.file_url, displayName, mimeForFile(a, cls));
+        if (cls.isPdf && window.Asterix && window.Asterix.viewer) window.Asterix.viewer.open('pdf', _fzProxy(a.file_url), displayName);
+        else openDocumentExternally(a.file_url, displayName, mimeForFile(a, cls));
       };
       wrap.appendChild(pill); bub.appendChild(wrap);
     });
 
-    if (isMe && msg.status && msg.status !== 'sent' && msg.status !== 'received') {
+    if (isMe) {
       var statusWrap = document.createElement('div');
-      statusWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;font-size:11px;color:var(--sub);';
+      statusWrap.className = 'msg-status';
+      statusWrap.style.cssText = 'display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:4px;font-size:11px;color:var(--sub);width:100%;';
+
       if (msg.status === 'pending') {
         statusWrap.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent2);"></i> Sending\u2026';
       } else if (msg.status === 'failed') {
         statusWrap.innerHTML = '<span style="color:#f15c6d;"><i class="fas fa-exclamation-circle"></i> Failed</span> ' +
           '<button class="msg-retry-btn" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px;text-decoration:underline;">Retry</button>';
         statusWrap.querySelector('.msg-retry-btn').onclick = function(e) { e.stopPropagation(); retryMessage(msg.id || msg.local_id); };
+      } else {
+        var tickClass = msg.is_read ? 'fa-check-double' : 'fa-check';
+        var tickColor = msg.is_read ? '#25d366' : '#8696a0';
+        statusWrap.innerHTML = '<i class="fas ' + tickClass + ' read-tick" style="color:' + tickColor + '; font-size:12px;"></i>';
       }
       bub.appendChild(statusWrap);
     }
@@ -490,7 +661,7 @@
         var msg = req.result; if (!msg) return;
         msg.status = 'pending'; store.put(msg);
         var row = document.querySelector('[data-local-id="' + localId + '"]');
-        if (row) { var sw = row.querySelector('.msg-bubble > div:last-child'); if (sw && sw.style && sw.style.fontSize === '11px') sw.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent2);"></i> Sending\u2026'; }
+        if (row) { var sw = row.querySelector('.msg-status'); if (sw) sw.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent2);"></i> Sending\u2026'; }
         Sync.flushOutgoingQueue();
       };
     });
@@ -526,10 +697,81 @@
     return API.getContactInfo(username).then(function(res) { return res.ok ? res.data : null; }).catch(function() { return null; });
   }
 
+  function openContactInfo(username) {
+    var overlay = document.getElementById('contact-info-overlay');
+    var panel = document.getElementById('contact-info-panel');
+    var avatar = document.getElementById('cip-avatar');
+    var nameEl = document.getElementById('cip-username');
+    var phoneEl = document.getElementById('cip-phone-text');
+    var closeBtn = document.getElementById('close-contact-info');
+
+    if (!panel) return;
+
+    nameEl.textContent = username;
+    phoneEl.textContent = 'Loading...';
+    avatar.src = '/static/images/default_profile_picture.webp';
+
+    fetchContactInfo(username).then(function(info) {
+      if (info) {
+        phoneEl.textContent = info.phone_number || 'No phone number';
+        if (info.profile_picture) { avatar.src = info.profile_picture; }
+      } else {
+        phoneEl.textContent = 'Details not available';
+      }
+    });
+
+    avatar.style.cursor = 'pointer';
+    avatar.onclick = function(e) {
+      e.stopPropagation();
+      if (window.Asterix && window.Asterix.viewer) {
+        window.Asterix.viewer.open('image', avatar.src, username);
+      } else if (window.openZoom) {
+        window.openZoom('image', avatar.src);
+      }
+    };
+
+    overlay.style.display = 'block';
+    panel.style.display = 'block';
+
+    closeBtn.onclick = function() { overlay.style.display = 'none'; panel.style.display = 'none'; };
+    overlay.onclick = function() { overlay.style.display = 'none'; panel.style.display = 'none'; };
+  }
+
   function updateOnlineStatus(recipient, info) {
+    var typingNow = recipient === activeRecipient && window.__fzTypingUntil && window.__fzTypingUntil > Date.now();
+    _fzBaseOnline(recipient, info, !!typingNow);
+    if (recipient === activeRecipient) _fzHeaderDot(!!(info && info.online));
+  }
+
+  function _fzHeaderDot(on) {
+    var av = document.getElementById('chat-header-avatar');
+    if (!av || !av.parentNode) return;
+    var dot = document.getElementById('chat-header-online-dot');
+
+    if (!dot) {
+      dot = document.createElement('span');
+      dot.id = 'chat-header-online-dot';
+      dot.style.cssText = 'position:absolute;width:12px;height:12px;border-radius:50%;background:#25d366;border:2px solid var(--mid,#2a2f2f);z-index:5;pointer-events:none;display:none;bottom:-2px;right:-2px;';
+
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;margin-right:12px;flex-shrink:0;';
+
+      av.parentNode.insertBefore(wrapper, av);
+      wrapper.appendChild(av);
+      wrapper.appendChild(dot);
+      av.style.marginRight = '0';
+    }
+
+    if (!on || av.style.display === 'none' || !av.offsetWidth) { dot.style.display = 'none'; return; }
+    dot.style.display = 'block';
+  }
+
+  function _fzBaseOnline(recipient, info, skipText) {
     var subEl = document.querySelector('.chat-header-sub');
-    if (subEl) {
-      if (info && info.online) { subEl.innerHTML = '<span style="color:#25d366;">\u25CF Online</span>'; }
+    if (subEl && !skipText) {
+      if (info && info.online) {
+        subEl.innerHTML = '<span style="color:#25d366;">\u25CF Online</span>';
+      }
       else if (info && info.last_seen) {
         var diff = Math.round((new Date() - new Date(info.last_seen)) / 60000);
         var label = 'Last seen ';
@@ -540,8 +782,24 @@
         subEl.textContent = label;
       } else { subEl.textContent = 'tap for info'; }
     }
+
     var dot = document.getElementById('online-' + recipient);
-    if (dot) dot.classList[info && info.online ? 'add' : 'remove']('show');
+    if (dot) {
+      if (info && info.online) {
+        dot.style.display = 'block';
+        dot.style.background = '#25d366';
+        dot.style.width = '12px';
+        dot.style.height = '12px';
+        dot.style.borderRadius = '50%';
+        dot.style.position = 'absolute';
+        dot.style.bottom = '0';
+        dot.style.right = '0';
+        dot.style.border = '2px solid var(--dark)';
+        dot.style.zIndex = '10';
+      } else {
+        dot.style.display = 'none';
+      }
+    }
   }
 
   function isInCart(statusId) {
@@ -554,7 +812,6 @@
     window.Asterix.cart.toggle(statusObj);
   }
 
-  // ── Detect a declined offer for this viewer on this listing ──
   function _hasDeclinedOffer(statusId, viewerName) {
     var msgs = window._currentMessages || [];
     for (var i = msgs.length - 1; i >= 0; i--) {
@@ -563,13 +820,11 @@
       if (!m.related_status || m.related_status.status_id !== statusId) continue;
       if (m.offer.buyer !== viewerName) continue;
       if (m.offer.state === 'declined') return true;
-      // If a newer pending counter/accepted offer exists, don't hide Buy.
       if (m.offer.state === 'pending' || m.offer.state === 'accepted') return false;
     }
     return false;
   }
 
-  // ── Render all listings ──────────────────────────────────
   function renderAllListings() {
     var existing = chatHeaderInfo.querySelectorAll('.chat-product-banner-wrap');
     existing.forEach(function(el) { el.remove(); });
@@ -610,9 +865,9 @@
 
       var strip = document.createElement('div');
       strip.className = 'chat-product-strip';
-      strip.style.cssText = 'display:flex;align-items:center;gap:9px;background:rgba(255,255,255,0.04);border-radius:10px;padding:6px 9px;margin-bottom:5px;border:1px solid rgba(255,255,255,0.07);';
 
-      // Checkbox
+      strip.style.cssText = 'display:flex;align-items:center;gap:9px;background:rgba(255,255,255,0.04);border-radius:10px;padding:6px 9px;margin-bottom:5px;border:1px solid rgba(255,255,255,0.07);flex-wrap:wrap;';
+
       var selectWrap = document.createElement('div');
       selectWrap.style.cssText = 'flex-shrink:0;display:flex;align-items:center;';
       var checkbox = document.createElement('input');
@@ -630,7 +885,6 @@
       }
       selectWrap.appendChild(checkbox); strip.appendChild(selectWrap);
 
-      // Thumbnail
       var thumbBox = document.createElement('div');
       thumbBox.style.cssText = 'width:38px;height:38px;border-radius:6px;overflow:hidden;background:var(--mid);flex-shrink:0;display:flex;align-items:center;justify-content:center;';
       var thumbSrc = rs._latest_reply_media || rs.media_url || '';
@@ -651,7 +905,6 @@
       }
       strip.appendChild(thumbBox);
 
-      // Info
       var stripInfo = document.createElement('div');
       stripInfo.style.cssText = 'flex:1;min-width:0;';
       var caption = rs.caption ? rs.caption.slice(0, 55) + (rs.caption.length > 55 ? '…' : '') : 'Listing';
@@ -661,9 +914,7 @@
         '<div style="font-size:11px;color:#e6a817;font-weight:600;margin-top:1px;">' + (priceText || '🏷️ Listing') + statusLabel + '</div>';
       strip.appendChild(stripInfo);
 
-      // Action buttons
       if (rs.active_deal_id && !isOwner) {
-        // Buyer has an active deal → Pay button wins over everything.
         var payLabel = '💳 Pay' + (rs.final_price ? '  K' + parseFloat(rs.final_price).toLocaleString('en-ZM', {minimumFractionDigits:2}) : '');
         strip.appendChild(_mkBannerBtn(payLabel, 'banner-btn-pay', function() {
           if (window.Asterix && window.Asterix.payment) {
@@ -682,12 +933,11 @@
         resBadge.style.cssText = 'font-size:10px;background:rgba(230,168,23,0.2);color:#e6a817;border-radius:8px;padding:3px 8px;flex-shrink:0;';
         resBadge.textContent = 'Reserved'; strip.appendChild(resBadge);
       } else if (hasDeclined && !isOwner) {
-        // Buyer got declined → hide Buy, show only "New Offer".
         var declinedBadge = document.createElement('span');
         declinedBadge.style.cssText = 'font-size:10px;background:rgba(241,92,109,0.15);color:#f15c6d;border-radius:8px;padding:3px 8px;flex-shrink:0;';
         declinedBadge.textContent = '❌ Declined'; strip.appendChild(declinedBadge);
 
-        strip.appendChild(_mkBannerBtn('🤝 New Offer', 'banner-btn-offer', function() {
+        strip.appendChild(_mkBannerBtn('New Offer', 'banner-btn-offer', function() {
           if (window.Asterix && window.Asterix.negotiate) {
             window.Asterix.negotiate.openOfferFromBanner(rs);
           } else {
@@ -696,7 +946,7 @@
         }));
       } else if (!isOwner) {
         if (rs.is_negotiable) {
-          strip.appendChild(_mkBannerBtn('🤝 Offer', 'banner-btn-offer', function() {
+          strip.appendChild(_mkBannerBtn('Offer', 'banner-btn-offer', function() {
             if (window.Asterix && window.Asterix.negotiate) {
               window.Asterix.negotiate.openOfferFromBanner(rs);
             } else {
@@ -715,7 +965,7 @@
       } else {
         var ownerBadge = document.createElement('span');
         ownerBadge.style.cssText = 'font-size:10px;background:rgba(37,211,102,0.15);color:#25d366;border-radius:8px;padding:3px 8px;flex-shrink:0;';
-        ownerBadge.textContent = '📦 Your listing'; strip.appendChild(ownerBadge);
+        ownerBadge.textContent = 'Your listing'; strip.appendChild(ownerBadge);
       }
 
       wrap.appendChild(strip);
@@ -770,8 +1020,25 @@
   }
 
   function loadMessages(recipient, forceRefresh) {
+    if (!recipient) return Promise.resolve();
     if (loadingRecipients.has(recipient)) return Promise.resolve();
     activeRecipient = recipient; State.activeRecipient = recipient;
+
+    loadingRecipients.add(recipient);
+    isLoading = true;
+
+    hideTypingBubble(); // 👈 Clear typing bubble when switching chats
+    chatContainer.classList.add('syncing');
+
+    chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div>' +
+      '<div class="chat-header-sub" style="color:var(--accent2);"><i class="fas fa-spinner fa-spin"></i> Syncing\u2026</div>';
+
+    chatContainer.innerHTML = '';
+
+    oldestMsgId = null; hasMoreOlder = true; isLoadingOlder = false;
+    var cachedMsgs = [];
+
+    var setupPromise = Promise.resolve();
 
     if (forceRefresh) {
       messageCache.delete(recipient);
@@ -779,93 +1046,147 @@
         window._currentMessages = [];
       }
       if (window.Sync && typeof Sync.deleteMessagesForRecipient === 'function') {
-        Sync.deleteMessagesForRecipient(recipient).catch(function() {});
+        setupPromise = Sync.deleteMessagesForRecipient(recipient).catch(function() {});
       }
     }
 
-    loadingRecipients.add(recipient);
-    isLoading = true;
-    try { chatContainer.classList.add('syncing'); } catch (e) {}
-    chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div>' +
-      '<div class="chat-header-sub" style="color:var(--accent2);"><i class="fas fa-spinner fa-spin"></i> Syncing\u2026</div>';
-    oldestMsgId = null; hasMoreOlder = true; isLoadingOlder = false;
-    var options = { limit: INITIAL_LIMIT };
-    if (forceRefresh) options._t = Date.now();
-
-    return API.getMessages(recipient, options)
-      .then(function(res) {
-        if (!res.ok) throw new Error((res.data && res.data.error) || 'Failed to load messages');
-        var msgs = res.data;
-        if (window.Sync) {
-          return Sync.mergeMessages(recipient, msgs).then(function() { return msgs; });
-        }
-        return msgs;
-      })
-      .then(function(allMsgs) {
-        renderMessages(recipient, allMsgs);
-        messageCache.set(recipient, allMsgs);
-        window._currentMessages = allMsgs;
-
-        var latestServer = null;
-        for (var i = allMsgs.length - 1; i >= 0; i--) {
-          if (allMsgs[i].server_id) { latestServer = allMsgs[i]; break; }
-        }
-        lastMsgId = latestServer ? latestServer.server_id : 0;
-
-        if (allMsgs.length) {
-          oldestMsgId = allMsgs[0].id;
-          hasMoreOlder = allMsgs.length >= INITIAL_LIMIT;
-        } else {
-          oldestMsgId = null;
-          hasMoreOlder = false;
+    return setupPromise.then(function() {
+        var cachePromise = Promise.resolve();
+        if (window.Sync && typeof Sync.getMessages === 'function') {
+          cachePromise = Sync.getMessages(recipient, INITIAL_LIMIT).then(function(msgs) {
+            if (msgs && msgs.length > 0) {
+              cachedMsgs = msgs;
+              renderMessages(recipient, msgs);
+              var latestCached = null;
+              for (var i = msgs.length - 1; i >= 0; i--) {
+                if (msgs[i].server_id) { latestCached = msgs[i]; break; }
+              }
+              if (latestCached) lastMsgId = latestCached.server_id;
+            }
+          }).catch(function(e){ console.warn("Cache load failed", e); });
         }
 
-        pendingRead.add(recipient);
-        State.prevCounts[recipient] = 0;
-        var badge = document.getElementById('unread-' + recipient);
-        if (badge) {
-          badge.textContent = '';
-          badge.classList.remove('show', 'pop');
-          badge.classList.add('hide');
-          setTimeout(function() { badge.classList.remove('hide'); }, 300);
-        }
+        return cachePromise.then(function() {
+            var options = { limit: INITIAL_LIMIT };
+            if (forceRefresh) options._t = Date.now();
 
-        if (localStorage.getItem('asterix_read_receipts') !== 'false') {
-          API.markAsRead(recipient);
-          if (window.Sync) Sync.markAsRead(recipient);
-        }
-        setTimeout(function() { pendingRead.delete(recipient); }, 4000);
+            return API.getMessages(recipient, options)
+              .then(function(res) {
+                if (!res.ok) throw new Error((res.data && res.data.error) || 'Failed to load messages');
+                var msgs = res.data;
 
-        var item = document.querySelector('.conversation-item[data-recipient="' + recipient + '"]');
-        if (item) {
-          var avatar = item.querySelector('.conv-avatar');
-          chatHeaderAvatar.src = avatar ? avatar.src : '';
-          chatHeaderAvatar.style.display = 'block';
-          chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub">tap for info</div>';
-          gearBtn.style.display = 'flex';
-        }
+                if (!msgs.length && cachedMsgs.length > 0) {
+                   chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub">tap for info</div>';
+                   return cachedMsgs;
+                }
 
-        setTimeout(function() { renderAllListings(); }, 0);
+                if (window.Sync) {
+                  return Sync.mergeMessages(recipient, msgs).then(function() { return msgs; });
+                }
+                return msgs;
+              })
+              .then(function(allMsgs) {
+                renderMessages(recipient, allMsgs);
+                messageCache.set(recipient, allMsgs);
+                window._currentMessages = allMsgs;
 
-        fetch('/api/conversation-previews/').then(function(r) { return r.ok ? r.json() : {}; })
-          .then(function(previews) { markMarketConversations(previews); }).catch(function() {});
+                var qrBar = document.getElementById('quick-reply-bar');
+                if (qrBar) {
+                  qrBar.innerHTML = '';
+                  qrBar.classList.remove('show');
 
-        document.querySelectorAll('.conversation-item').forEach(function(i) { i.classList.remove('active'); });
-        if (item) item.classList.add('active');
+                  var suggestions = ['Shani!', '👋 Hello!', 'How are you?', 'I will call you.', 'Where are you?'];
+                  var lastMsgObj = allMsgs[allMsgs.length - 1];
 
-        hideSidebarOnMobile();
-        fetchContactInfo(recipient).then(function(info) { if (info) updateOnlineStatus(recipient, info); });
-        isLoading = false;
-        errStreak = 0;
-        return allMsgs;
-      })
-      .catch(function(e) {
-        toast('Error', 'Could not load messages.');
-        chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub" style="color:#f15c6d;">Error loading</div>';
-        isLoading = false;
-        throw e;
-      })
-      .finally(function() { loadingRecipients.delete(recipient); try { chatContainer.classList.remove('syncing'); } catch (e) {} });
+                  if (lastMsgObj && lastMsgObj.sender !== State.ME) {
+                    var txt = (lastMsgObj.message || '').toLowerCase();
+                    if (txt.includes('hi') || txt.includes('hello') || txt.includes('hey')) {
+                      suggestions = ['Hello! 👋', 'I\'m good.', 'How can I help?', 'Long time!'];
+                    } else if (txt.includes('verse') || txt.includes('bible') || txt.includes('scripture')) {
+                      suggestions = ['Amen! 🙏', 'Powerful word.', 'Let me read it.', 'Thank you.'];
+                    }
+                  }
+
+                  suggestions.forEach(function(sug) {
+                    var chip = document.createElement('button');
+                    chip.className = 'qr-chip';
+                    chip.textContent = sug;
+                    chip.onclick = function() {
+                      msgInput.value = sug;
+                      msgInput.focus();
+                      msgInput.dispatchEvent(new Event('input'));
+                    };
+                    qrBar.appendChild(chip);
+                  });
+                }
+
+                var latestServer = null;
+                for (var i = allMsgs.length - 1; i >= 0; i--) {
+                  if (allMsgs[i].server_id) { latestServer = allMsgs[i]; break; }
+                }
+                lastMsgId = latestServer ? latestServer.server_id : 0;
+
+                if (allMsgs.length) {
+                  oldestMsgId = allMsgs[0].id;
+                  hasMoreOlder = allMsgs.length >= INITIAL_LIMIT;
+                } else {
+                  oldestMsgId = null;
+                  hasMoreOlder = false;
+                }
+
+                pendingRead.add(recipient);
+                State.prevCounts[recipient] = 0;
+                var badge = document.getElementById('unread-' + recipient);
+                if (badge) {
+                  badge.textContent = '';
+                  badge.classList.remove('show', 'pop');
+                  badge.classList.add('hide');
+                  setTimeout(function() { badge.classList.remove('hide'); }, 300);
+                }
+
+                if (localStorage.getItem('asterix_read_receipts') !== 'false') {
+                  API.markAsRead(recipient);
+                  if (window.Sync) Sync.markAsRead(recipient);
+                }
+                setTimeout(function() { pendingRead.delete(recipient); }, 4000);
+
+                var item = document.querySelector('.conversation-item[data-recipient="' + recipient + '"]');
+                if (item) {
+                  var avatar = item.querySelector('.conv-avatar');
+                  chatHeaderAvatar.src = avatar ? avatar.src : '';
+                  chatHeaderAvatar.style.display = 'block';
+                  chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub">tap for info</div>';
+                  gearBtn.style.display = 'flex';
+                }
+
+                setTimeout(function() { renderAllListings(); }, 0);
+
+                fetch('/api/conversation-previews/').then(function(r) { return r.ok ? r.json() : {}; })
+                  .then(function(previews) { markMarketConversations(previews); }).catch(function() {});
+
+                document.querySelectorAll('.conversation-item').forEach(function(i) { i.classList.remove('active'); });
+                if (item) item.classList.add('active');
+
+                hideSidebarOnMobile();
+                if (!isMobile() && msgInput) msgInput.focus();
+                fetchContactInfo(recipient).then(function(info) { if (info) updateOnlineStatus(recipient, info); });
+                isLoading = false;
+                errStreak = 0;
+                return allMsgs;
+              })
+              .catch(function(e) {
+                if (cachedMsgs.length > 0) {
+                  chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub" style="color:#f15c6d;"><i class="fas fa-wifi"></i> Offline mode</div>';
+                } else {
+                  toast('Error', 'Could not load messages.');
+                  chatHeaderInfo.innerHTML = '<div class="chat-header-name">' + recipient + '</div><div class="chat-header-sub" style="color:#f15c6d;">Error loading</div>';
+                }
+                isLoading = false;
+                return [];
+              });
+        });
+    })
+    .finally(function() { loadingRecipients.delete(recipient); try { chatContainer.classList.remove('syncing'); } catch (e) {} });
   }
 
   function hideSidebarOnMobile() {
@@ -877,8 +1198,15 @@
   }
 
   function renderMessages(recipient, msgs) {
+    hideTypingBubble();
     chatContainer.innerHTML = '';
-    msgs.forEach(function(m) { chatContainer.appendChild(buildBubble(m)); });
+    msgs.forEach(function(m) {
+      try {
+        chatContainer.appendChild(buildBubble(m));
+      } catch (err) {
+        console.warn('Failed to build bubble for msg', m, err);
+      }
+    });
     chatContainer.scrollTop = chatContainer.scrollHeight;
   }
 
@@ -911,7 +1239,7 @@
       else if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(mediaUrl))          mediaType = 'video/*';
       mediaIcon = mediaType.indexOf('image/') === 0 ? '\uD83D\uDCF7 Photo' : mediaType.indexOf('video/') === 0 ? '\uD83C\uDFAC Video' : '\uD83D\uDCCE File';
     }
-    var previewText = mediaIcon || (msg.message ? msg.message.substring(0, 80) : '[Message]');
+    var previewText = msg.message ? msg.message.substring(0, 80) : '';
     var existing = document.getElementById('_reply-banner'); if (existing) existing.remove();
     var bar = document.getElementById('chat-input-bar');
     var banner = document.createElement('div'); banner.id = '_reply-banner';
@@ -920,7 +1248,7 @@
       var pmu2 = _fzProxy(mediaUrl);
       if (mediaType.indexOf('image/') === 0) thumbHtml = '<img src="' + pmu2 + '" style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;">';
       else if (mediaType.indexOf('video/') === 0) thumbHtml = '<video src="' + pmu2 + '" style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;" muted></video>';
-      else thumbHtml = '<i class="fas fa-file" style="font-size:24px;color:var(--sub);"></i>';
+      else thumbHtml = '';
     }
     banner.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px;flex:1;overflow:hidden;">' + (thumbHtml || '') +
@@ -969,8 +1297,16 @@
     }
   }
 
+  function setBubbleStatus(localId, text, spinning) {
+    var row = document.querySelector('[data-local-id="' + localId + '"]');
+    var s = row && row.querySelector('.msg-status');
+    if (!s) return;
+    s.innerHTML = (spinning ? '<i class="fas fa-spinner fa-spin" style="color:var(--accent2);"></i> ' : '') + text;
+  }
+
   function sendMessage() {
-    var text = msgInput.value.trim(), fileList = Array.prototype.slice.call(fileInput.files);
+    var text = msgInput.value.trim();
+    var fileList = Array.prototype.slice.call(selectedFiles || []);
     if (!activeRecipient) {
       var activeItem = document.querySelector('.conversation-item.active');
       if (activeItem) { activeRecipient = activeItem.getAttribute('data-recipient'); State.activeRecipient = activeRecipient; }
@@ -1011,7 +1347,7 @@
     var compressPromises = fileList.map(function(f, idx) {
       return compressImage(f, 1280, 0.8).then(function(r) { compressed[idx] = r; });
     });
-    if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Processing files…');
+    setBubbleStatus(localId, 'Preparing…', true);
 
     Promise.all(compressPromises).then(function() {
       var fd = new FormData();
@@ -1033,7 +1369,7 @@
         xhr.setRequestHeader('X-CSRFToken', getCsrf());
         xhr.upload.onprogress = function(e) {
           if (e.lengthComputable && window.Asterix && window.Asterix.ui) {
-            window.Asterix.ui.showSpinner('Uploading… ' + Math.round(e.loaded / e.total * 100) + '%');
+            setBubbleStatus(localId, 'Uploading… ' + Math.round(e.loaded / e.total * 100) + '%', true);
           }
         };
         xhr.onload = function() {
@@ -1114,11 +1450,16 @@
 
   function resetInputs() {
     msgInput.value = '';
-    msgInput.style.height = '42px';
+    msgInput.style.height = '38px';
     fileInput.value = '';
     selectedFiles = [];
     attachmentPreview.innerHTML = '';
     sendBtn.classList.remove('show');
+
+    var qrBar = document.getElementById('quick-reply-bar');
+    if (qrBar) qrBar.classList.remove('show');
+
+    msgInput.focus();
   }
 
   function clearChat() {
@@ -1133,6 +1474,8 @@
     }).then(function(ok) {
       if (!ok) return;
       if (window.Asterix && window.Asterix.ui) window.Asterix.ui.showSpinner('Clearing chat…');
+
+      hideTypingBubble(); // 👈 Clear typing bubble on clear chat
       chatContainer.innerHTML = '';
       clearCache(recipient);
       lastMsgId = 0; oldestMsgId = null; hasMoreOlder = true; isLoadingOlder = false;
@@ -1140,17 +1483,22 @@
 
       var clearDB = Promise.resolve();
       if (window.Sync && typeof Sync.deleteMessagesForRecipient === 'function') {
-        clearDB = Sync.deleteMessagesForRecipient(recipient);
+        clearDB = Sync.deleteMessagesForRecipient(recipient).catch(function(e) {
+          console.warn('Local cache clear failed, continuing to clear on server:', e);
+        });
       }
+
       clearDB.then(function() { return API.clearChat(recipient); })
       .then(function(res) {
         if (res.ok) {
           toast('\u2705', 'Chat cleared for you.');
           return loadMessages(recipient, true);
         } else {
+          loadMessages(recipient, true);
           toast('Error', ((res.data && (res.data.error || res.data.message)) || res.rawText || 'Could not clear chat.'));
         }
       }).catch(function(e) {
+        loadMessages(recipient, true);
         toast('Error', 'Failed to clear chat: ' + (e.message || 'unknown error'));
       }).finally(function() {
         if (window.Asterix && window.Asterix.ui) window.Asterix.ui.hideSpinner();
@@ -1229,6 +1577,7 @@
   window.Asterix.messages = { _fwdResolve: _fwdResolve, _fwdConfirm: _fwdConfirm };
 
   function addConversationItem(contact) {
+    if (!contact || !contact.username) return;
     var list = document.getElementById('conversation-list');
     if (!list) return;
     if (document.querySelector('.conversation-item[data-recipient="' + contact.username + '"]')) return;
@@ -1239,7 +1588,7 @@
         initial = (contact.username || '?').charAt(0).toUpperCase();
     var bgColors = ['#e53935','#8e24aa','#1e88e5','#00897b','#f4511e','#6d4c41','#546e7a','#43a047'];
     var bgColor  = bgColors[contact.username.charCodeAt(0) % bgColors.length];
-    item.innerHTML = '<div class="conv-avatar-wrapper"><div class="conv-avatar-init" style="background:' + bgColor + ';">' + initial + '</div>' + (avatarUrl ? '<img class="conv-avatar" src="' + avatarUrl + '" alt="' + contact.username + '">' : '') + '</div><div class="conv-body"><div class="conv-name">' + contact.username + '</div><div class="conv-preview" id="preview-' + contact.username + '">Tap to open chat</div></div><span class="unread-badge" id="unread-' + contact.username + '"></span>';
+    item.innerHTML = '<div class="conv-avatar-wrapper"><div class="conv-avatar-init" style="background:' + bgColor + ';">' + initial + '</div>' + (avatarUrl ? '<img class="conv-avatar" src="' + avatarUrl + '" alt="' + contact.username + '">' : '') + '<span class="online-dot" id="online-' + contact.username + '" style="display:none;"></span></div><div class="conv-body"><div class="conv-name">' + contact.username + '</div><div class="conv-preview" id="preview-' + contact.username + '">Tap to open chat</div></div><span class="unread-badge" id="unread-' + contact.username + '"></span>';
     list.appendChild(item);
   }
 
@@ -1282,6 +1631,8 @@
     markMarketConversations: markMarketConversations,
     renderAllListings: renderAllListings,
     refreshThread: refreshThread,
+    showTypingBubble: showTypingBubble, // 👈 Export typing bubble functions
+    hideTypingBubble: hideTypingBubble
   };
 
   (function wireStatusHub() {
@@ -1302,6 +1653,13 @@
       if (s && typeof s.open === 'function') { s.open(catName); return; }
     });
   })();
+
+  if (chatHeaderAvatar) {
+    chatHeaderAvatar.style.cursor = 'pointer';
+    chatHeaderAvatar.addEventListener('click', function() {
+      if (activeRecipient) { openContactInfo(activeRecipient); }
+    });
+  }
 
   if (convList) {
     convList.addEventListener('click', function(e) {
@@ -1324,11 +1682,35 @@
     msgInput.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
-    msgInput.addEventListener('input', function() {
-      this.style.height = '42px';
-      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    var typingTimeout = null;
+  msgInput.addEventListener('input', function() {
+      this.style.height = '38px';
+      this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+
       sendBtn.classList.toggle('show', this.value.trim().length > 0 || fileInput.files.length > 0);
-    });
+
+      var qrBar = document.getElementById('quick-reply-bar');
+      if (qrBar) {
+        if (this.value.trim().length > 0) { qrBar.classList.add('show'); }
+        else { qrBar.classList.remove('show'); }
+      }
+
+      if (activeRecipient && this.value.trim().length > 0) {
+        if (!typingTimeout) {
+          if (API.sendTyping) API.sendTyping(activeRecipient);
+          typingTimeout = setTimeout(function() { typingTimeout = null; }, 2500);
+        }
+      }
+  });
+
+  function checkOnline() {
+    if (activeRecipient) {
+      fetchContactInfo(activeRecipient).then(function(info) {
+        if (info) updateOnlineStatus(activeRecipient, info);
+      });
+    }
+  }
+  window.Asterix.chat.checkOnline = checkOnline;
   }
   if (attachBtn) attachBtn.addEventListener('click', function() { fileInput.click(); });
 
@@ -1337,9 +1719,50 @@
       var incoming = Array.prototype.slice.call(this.files);
       if (incoming.length) {
         selectedFiles = selectedFiles.concat(incoming).slice(0, MAX_ATTACH);
-        sendBtn.classList.toggle('show', true);
       }
+      this.value = '';
+      renderAttachmentPreviews();
     });
+  }
+
+  function renderAttachmentPreviews() {
+    var prev = document.getElementById('attachment-preview');
+    if (!prev) return;
+    prev.innerHTML = '';
+
+    selectedFiles.forEach(function(f, index) {
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:relative; display:inline-block; margin-right:6px; margin-bottom:6px;';
+
+      if (f.type && f.type.startsWith('image/')) {
+        var img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.style.cssText = 'width:58px; height:58px; border-radius:6px; object-fit:cover; border:1px solid rgba(255,255,255,.15);';
+        wrapper.appendChild(img);
+      } else {
+        var cls = classifyFile({ file_name: f.name, file_type: f.type });
+        var ic = fileIconAndColor(cls);
+        var p = document.createElement('div');
+        p.className = 'att-pill';
+        p.style.cssText = 'display:flex; align-items:center; gap:4px; font-size:11px; background:rgba(255,255,255,.08); border-radius:12px; padding:4px 10px; color:var(--text); max-width:130px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; height:58px;';
+        p.innerHTML = '<i class="fas ' + ic.icon + '" style="color:' + ic.color + '; font-size:16px;"></i> ' + f.name;
+        wrapper.appendChild(p);
+      }
+
+      var delBtn = document.createElement('button');
+      delBtn.innerHTML = '&times;';
+      delBtn.style.cssText = 'position:absolute; top:-4px; right:-4px; background:#f15c6d; color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; line-height:1; box-shadow:0 2px 6px rgba(0,0,0,0.5);';
+      delBtn.onclick = function(e) {
+        e.stopPropagation();
+        selectedFiles.splice(index, 1);
+        renderAttachmentPreviews();
+      };
+
+      wrapper.appendChild(delBtn);
+      prev.appendChild(wrapper);
+    });
+
+    sendBtn.classList.toggle('show', msgInput.value.trim().length > 0 || selectedFiles.length > 0);
   }
 
   if (backBtn) {
@@ -1356,6 +1779,7 @@
         document.querySelectorAll('.conversation-item').forEach(function(i) { i.classList.remove('active'); });
         activeRecipient = null;
         State.activeRecipient = null;
+        hideTypingBubble(); // 👈 Clear typing bubble on back
       }
     });
   }
@@ -1397,5 +1821,11 @@
 
   if (typeof pollLoop === 'function') pollLoop();
 
-  console.log('[Asterix] chat.js loaded — enquiry preserved + declined Buy hidden + media proxied');
+  setInterval(function() {
+    if (activeRecipient && window.Asterix && window.Asterix.chat && window.Asterix.chat.checkOnline) {
+      window.Asterix.chat.checkOnline();
+    }
+  }, 5000);
+
+  console.log('[Asterix] chat.js loaded — typing indicators active');
 })();
